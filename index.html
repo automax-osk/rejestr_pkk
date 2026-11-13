@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rejestr kursantów – PKK</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root { --c:#1565c0; --bg:#f3f5f8; --card:#fff; --txt:#1c2430; --mut:#6b7686; --ok:#2e7d32; --err:#c62828; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:var(--c); color:#fff; padding:14px 16px; }
+  header h1 { margin:0; font-size:1.15rem; }
+  header p { margin:2px 0 0; font-size:.8rem; opacity:.85; }
+  main { max-width:900px; margin:0 auto; padding:12px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  h2 { font-size:1rem; margin:0 0 10px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:0; border-radius:10px; padding:12px 16px; font-size:1rem; font-weight:600; cursor:pointer; background:var(--c); color:#fff; }
+  .btn.sec { background:#e3e8ef; color:var(--txt); }
+  .btn.red { background:var(--err); }
+  .btn.small { padding:6px 10px; font-size:.85rem; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .big { width:100%; padding:18px; font-size:1.1rem; }
+  label { display:block; font-size:.8rem; color:var(--mut); margin:10px 0 3px; }
+  input, textarea, select { width:100%; padding:10px; font-size:1rem; border:1px solid #cfd6df; border-radius:8px; background:#fff; }
+  input.found { border-color:var(--ok); background:#f1f8f1; }
+  input.miss { border-color:#e0a000; background:#fffaf0; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  .full { grid-column:1/-1; }
+  @media (max-width:560px){ .grid{ grid-template-columns:1fr; } }
+  #preview { max-width:100%; max-height:260px; border-radius:8px; display:none; margin-top:10px; }
+  #status { margin-top:10px; font-size:.9rem; color:var(--mut); }
+  .bar { height:6px; background:#e3e8ef; border-radius:3px; overflow:hidden; margin-top:6px; display:none; }
+  .bar div { height:100%; width:0; background:var(--c); transition:width .2s; }
+  table { width:100%; border-collapse:collapse; font-size:.88rem; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid #e6eaf0; vertical-align:top; }
+  th { color:var(--mut); font-weight:600; font-size:.75rem; text-transform:uppercase; }
+  td.pkk { font-family:ui-monospace,Consolas,monospace; font-size:.8rem; word-break:break-all; }
+  .tag { display:inline-block; background:#e3f0fd; color:var(--c); border-radius:6px; padding:2px 7px; font-weight:700; }
+  .search { margin-bottom:10px; }
+  details summary { cursor:pointer; color:var(--mut); font-size:.85rem; margin-top:8px; }
+  pre { white-space:pre-wrap; font-size:.75rem; background:#f6f8fa; padding:8px; border-radius:6px; max-height:200px; overflow:auto; }
+  .empty { color:var(--mut); text-align:center; padding:20px; }
+  .tablewrap { overflow-x:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📋 Rejestr kursantów – Profil PKK</h1>
+  <p>Zdjęcie profilu → automatyczny odczyt danych → zapis w rejestrze</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>1. Zdjęcie profilu PKK</h2>
+    <input type="file" id="file" accept="image/*" hidden>
+    <button class="btn big" id="btnPhoto">📷 Zrób zdjęcie lub wybierz z galerii</button>
+    <img id="preview" alt="podgląd">
+    <div class="bar" id="bar"><div></div></div>
+    <div id="status">Zrób zdjęcie całej kartki, prosto i w dobrym świetle.</div>
+    <details><summary>Odczytany tekst (do sprawdzenia)</summary><pre id="raw"></pre></details>
+  </div>
+
+  <div class="card">
+    <h2>2. Dane kursanta <small style="color:var(--mut);font-weight:400">(sprawdź i popraw)</small></h2>
+    <div class="grid">
+      <div class="full"><label>Imię i nazwisko</label><input id="f_name"></div>
+      <div><label>Telefon</label><input id="f_phone" inputmode="tel"></div>
+      <div><label>E-mail</label><input id="f_email" inputmode="email"></div>
+      <div class="full"><label>Numer PKK (20 cyfr)</label><input id="f_pkk" inputmode="numeric"></div>
+      <div><label>Kategoria szkolenia</label><input id="f_cat"></div>
+      <div><label>Rodzaj kursu</label><select id="f_kurs"><option>Podstawowy</option><option>Uzupełniający</option></select></div>
+      <div><label>Posiadane kategorie</label><input id="f_has" placeholder="np. AM, B, B1"></div>
+      <div><label>Data zapisu</label><input id="f_date" type="date"></div>
+      <div><label>Nr prawa jazdy</label><input id="f_lic" placeholder="opcjonalnie"></div>
+      <div class="full"><label>Uwagi</label><textarea id="f_note" rows="2"></textarea></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="btnSave">💾 Zapisz w rejestrze</button>
+      <button class="btn sec" id="btnClear">Wyczyść</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Rejestr (<span id="count">0</span>)</h2>
+    <input class="search" id="search" placeholder="🔍 Szukaj: nazwisko, telefon, PKK…">
+    <div class="tablewrap"><table>
+      <thead><tr><th>Data</th><th>Kursant</th><th>Kontakt</th><th>PKK</th><th>Kat.</th><th></th></tr></thead>
+      <tbody id="list"></tbody>
+    </table></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn sec small" id="btnCsv">⬇ Eksport do Excela (CSV)</button>
+      <button class="btn sec small" id="btnBackup">⬇ Kopia zapasowa</button>
+      <button class="btn sec small" id="btnRestore">⬆ Wczytaj kopię</button>
+      <input type="file" id="restoreFile" accept=".json" hidden>
+    </div>
+  </div>
+
+</main>
+<script>
+const KEY = 'rejestr_pkk_v1';
+const $ = id => document.getElementById(id);
+const F = ['name','phone','email','pkk','cat','kurs','has','date','lic','note'];
+let editId = null;
+
+// ---------- Rejestr ----------
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch(e) { return []; } };
+const store = d => localStorage.setItem(KEY, JSON.stringify(d));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtPkk = p => (p||'').replace(/\D/g,'').replace(/(\d{5})(?=\d)/g,'$1 ');
+const fmtDate = d => d ? d.split('-').reverse().join('.') : '';
+
+function render() {
+  const q = $('search').value.toLowerCase().replace(/\s/g,'');
+  const all = load().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const rows = all.filter(r => !q || JSON.stringify(r).toLowerCase().replace(/\s/g,'').includes(q));
+  $('count').textContent = all.length;
+  $('list').innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td>${fmtDate(r.date)}</td>
+      <td><b>${esc(r.name)}</b>${r.has ? `<br><small>ma: ${esc(r.has)}</small>` : ''}${r.note ? `<br><small>${esc(r.note)}</small>` : ''}</td>
+      <td>${r.phone ? `<a href="tel:${esc(r.phone.replace(/\s/g,''))}">${esc(r.phone)}</a>` : ''}<br><small>${esc(r.email)}</small></td>
+      <td class="pkk">${esc(fmtPkk(r.pkk))}</td>
+      <td><span class="tag">${esc(r.cat)}</span>${r.kurs ? `<br><small>${esc(r.kurs)}</small>` : ''}</td>
+      <td><button class="btn sec small" onclick="edit('${r.id}')">✏️</button>
+          <button class="btn sec small" onclick="del('${r.id}')">🗑</button></td>
+    </tr>`).join('') : '<tr><td colspan="6" class="empty">Brak wpisów</td></tr>';
+}
+
+function clearForm() {
+  F.forEach(f => { $('f_'+f).value = ''; $('f_'+f).classList.remove('found','miss'); });
+  $('f_date').value = new Date().toISOString().slice(0,10);
+  $('f_kurs').value = 'Podstawowy';
+  editId = null; $('btnSave').textContent = '💾 Zapisz w rejestrze';
+}
+
+$('btnSave').onclick = () => {
+  const r = {}; F.forEach(f => r[f] = $('f_'+f).value.trim());
+  r.pkk = r.pkk.replace(/\D/g,'');
+  r.cat = r.cat.toUpperCase();
+  if (!r.name) return alert('Wpisz imię i nazwisko.');
+  if (r.pkk && r.pkk.length !== 20 && !confirm(`Numer PKK ma ${r.pkk.length} cyfr zamiast 20. Zapisać mimo to?`)) return;
+  const d = load();
+  if (!editId && r.pkk && d.some(x => x.pkk === r.pkk) && !confirm('Ten numer PKK jest już w rejestrze. Dodać ponownie?')) return;
+  if (editId) { const i = d.findIndex(x => x.id === editId); d[i] = { ...d[i], ...r }; }
+  else d.push({ id: Date.now().toString(36), ...r });
+  store(d); clearForm(); render();
+  $('preview').style.display = 'none'; $('status').textContent = '✅ Zapisano. Możesz zrobić zdjęcie kolejnego profilu.';
+};
+$('btnClear').onclick = clearForm;
+window.edit = id => {
+  const r = load().find(x => x.id === id); if (!r) return;
+  F.forEach(f => $('f_'+f).value = f === 'pkk' ? fmtPkk(r[f]) : (r[f] || ''));
+  if (!r.kurs) $('f_kurs').value = 'Podstawowy';
+  editId = id; $('btnSave').textContent = '💾 Zapisz zmiany';
+  window.scrollTo({ top: $('f_name').getBoundingClientRect().top + scrollY - 80, behavior:'smooth' });
+};
+window.del = id => { if (confirm('Usunąć ten wpis?')) { store(load().filter(x => x.id !== id)); render(); } };
+$('search').oninput = render;
+
+// ---------- Eksport / kopia ----------
+function download(name, content, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const today = () => new Date().toISOString().slice(0,10);
+$('btnCsv').onclick = () => {
+  const head = ['Data zapisu','Imię i nazwisko','Telefon','E-mail','Numer PKK','Kategoria','Rodzaj kursu','Posiadane kategorie','Nr prawa jazdy','Uwagi'];
+  const q = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
+  const lines = load().map(r => [fmtDate(r.date), r.name, r.phone, r.email, "'" + (r.pkk||''), r.cat, r.kurs, r.has, r.lic, r.note].map(q).join(';'));
+  download(`rejestr-pkk-${today()}.csv`, '﻿' + [head.map(q).join(';'), ...lines].join('\r\n'), 'text/csv;charset=utf-8');
+};
+$('btnBackup').onclick = () => download(`rejestr-pkk-kopia-${today()}.json`, JSON.stringify(load(), null, 1), 'application/json');
+$('btnRestore').onclick = () => $('restoreFile').click();
+$('restoreFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const inc = JSON.parse(await f.text()); if (!Array.isArray(inc)) throw 0;
+    const d = load(), ids = new Set(d.map(x => x.id));
+    const add = inc.filter(x => !ids.has(x.id));
+    store(d.concat(add)); render(); alert(`Wczytano ${add.length} nowych wpisów.`);
+  } catch(_) { alert('To nie jest poprawny plik kopii.'); }
+  e.target.value = '';
+};
+
+// ---------- Rozpoznawanie ze zdjęcia ----------
+const CATS = ['C1+E','D1+E','C1E','D1E','B+E','C+E','D+E','AM','A1','A2','B1','BE','C1','CE','D1','DE','A','B','C','D','T'];
+
+function parse(text) {
+  const out = {};
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const flat = text.replace(/\s+/g,' ');
+
+  // Imię i nazwisko
+  let m = flat.match(/Nazwisko\s*[:;.]?\s*([A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż\-]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż\-]+){1,3})/);
+  if (m) out.name = m[1].replace(/\s+(Telefon|Tel|Email|E-mail).*$/i,'').trim()
+          .toLowerCase().replace(/(^|[\s\-])\S/g, s => s.toUpperCase());
+
+  // Telefon
+  m = flat.match(/Tel[a-z]*\s*[:;.]?\s*((?:\+?48)?[\s\-]?\d[\d\s\-]{7,12}\d)/i);
+  if (m) { const d = m[1].replace(/\D/g,'').replace(/^48(?=\d{9}$)/,''); if (d.length === 9) out.phone = d.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3'); }
+
+  // E-mail
+  m = flat.match(/[A-Za-z0-9._%+\-]+\s?[@©®]\s?[A-Za-z0-9\-]+(?:\s?\.\s?[A-Za-z]{2,})+/);
+  if (m) out.email = m[0].replace(/\s/g,'').replace(/[©®]/,'@').toLowerCase();
+
+  // Numer PKK – 20 cyfr (zwykle w grupach po 5)
+  m = flat.match(/(\d{5})\s?(\d{5})\s?(\d{5})\s?(\d{5})(?!\d)/);
+  if (m) out.pkk = m.slice(1).join('');
+  else { const digits = flat.replace(/[OoD]/g, c => c==='D'?c:'0').match(/\d[\d ]{18,30}\d/g) || [];
+         const hit = digits.map(s => s.replace(/\D/g,'')).find(s => s.length === 20); if (hit) out.pkk = hit; }
+
+  // Kategoria – w linii z numerem PKK, po numerze
+  const pkkLine = lines.find(l => /\d{5}\s?\d{5}\s?\d{5}\s?\d{5}/.test(l));
+  const findCat = s => { const t = s.toUpperCase().replace(/\s*\+\s*/g,'+');
+    for (const c of CATS) if (new RegExp('(^|[^A-Z0-9+])' + c.replace('+','\\+') + '(?=$|[^A-Z0-9+])').test(t)) return c.replace('+',''); };
+  if (pkkLine) out.cat = findCat(pkkLine.replace(/[\d\s]{20,}/,' '));
+  if (!out.cat) { const i = lines.findIndex(l => /Kategoria/i.test(l));
+    if (i >= 0) for (const l of lines.slice(i, i+4)) { const c = findCat(l.replace(/Kategoria|Kod|Numer|PKK/gi,' ').replace(/[\d\s]{20,}/,' ')); if (c) { out.cat = c; break; } } }
+  return out;
+}
+
+function prepareImage(file) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 2200, s = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+      const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+      for (let i = 0; i < p.length; i += 4) {           // szarość + kontrast
+        let g = 0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2];
+        g = Math.max(0, Math.min(255, (g - 128) * 1.6 + 150));
+        p[i] = p[i+1] = p[i+2] = g;
+      }
+      x.putImageData(d, 0, 0);
+      res({ canvas: c, img });
+    };
+    img.onerror = rej; img.src = URL.createObjectURL(file);
+  });
+}
+
+async function readBarcode(img) {
+  if (!('BarcodeDetector' in window)) return null;
+  try {
+    const det = new BarcodeDetector({ formats: ['code_128','code_39','itf','ean_13','pdf417','qr_code','data_matrix'] });
+    const codes = await det.detect(img);
+    for (const c of codes) { const d = (c.rawValue||'').replace(/\D/g,''); if (d.length === 20) return d; }
+  } catch(_) {}
+  return null;
+}
+
+let worker = null;
+$('btnPhoto').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  e.target.value = '';
+  $('preview').src = URL.createObjectURL(file); $('preview').style.display = 'block';
+  const bar = $('bar'), fill = bar.firstElementChild; bar.style.display = 'block'; fill.style.width = '0';
+  const st = t => $('status').textContent = t;
+  try {
+    st('Przygotowuję zdjęcie…');
+    const { canvas, img } = await prepareImage(file);
+    const barcode = await readBarcode(img);
+    if (!worker) {
+      st('Ładuję moduł rozpoznawania tekstu (pierwszy raz może potrwać ~20 s)…');
+      worker = await Tesseract.createWorker('pol', 1, { logger: m => { if (m.status === 'recognizing text') { fill.style.width = (m.progress*100) + '%'; st('Rozpoznaję tekst… ' + Math.round(m.progress*100) + '%'); } } });
+    }
+    st('Rozpoznaję tekst…');
+    const { data } = await worker.recognize(canvas);
+    $('raw').textContent = data.text;
+    const r = parse(data.text);
+    if (barcode) r.pkk = barcode;
+    if (!editId) clearForm();
+    const map = { name:r.name, phone:r.phone, email:r.email, pkk: r.pkk ? fmtPkk(r.pkk) : '', cat:r.cat };
+    let n = 0;
+    for (const [k, v] of Object.entries(map)) {
+      const el = $('f_'+k); el.classList.remove('found','miss');
+      if (v) { el.value = v; el.classList.add('found'); n++; } else el.classList.add('miss');
+    }
+    fill.style.width = '100%';
+    st(n === 5 ? `✅ Odczytano wszystkie dane${barcode ? ' (PKK z kodu kreskowego)' : ''}. Sprawdź i kliknij „Zapisz”.`
+               : `⚠️ Odczytano ${n} z 5 pól – uzupełnij pola zaznaczone na żółto lub zrób wyraźniejsze zdjęcie.`);
+  } catch (err) {
+    console.error(err); st('❌ Błąd odczytu. Sprawdź połączenie z internetem i spróbuj ponownie.');
+  } finally { setTimeout(() => bar.style.display = 'none', 800); }
+};
+
+clearForm(); render();
+</script>
+</body>
+</html>
