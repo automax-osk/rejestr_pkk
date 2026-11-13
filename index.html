@@ -107,6 +107,8 @@
       <button class="btn sec small" id="btnCsv">⬇ Eksport do Excela (CSV)</button>
       <button class="btn sec small" id="btnBackup">⬇ Kopia zapasowa</button>
       <button class="btn sec small" id="btnRestore">⬆ Wczytaj kopię</button>
+      <button class="btn sec small" id="btnXls">📥 Import z Excela</button>
+      <input type="file" id="xlsFile" accept=".xlsx,.xls,.csv,.ods" hidden>
       <input type="file" id="restoreFile" accept=".json" hidden>
     </div>
   </div>
@@ -221,6 +223,89 @@ $('restoreFile').onchange = async e => {
     store(d.concat(add)); render(); alert(`Wczytano ${add.length} nowych wpisów.`);
   } catch(_) { alert('To nie jest poprawny plik kopii.'); }
   e.target.value = '';
+};
+
+// ---------- Import z Excela ----------
+const norm = h => String(h ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').replace(/[^a-z0-9]/g, '');
+const COLS = [
+  ['name', h => /imieinazwisko|nazwiskoiimie|kursant|imienazwisko|^osoba$/.test(h)],
+  ['first', h => /^imie$|^imiona?$/.test(h)],
+  ['last', h => /^nazwisko$/.test(h)],
+  ['phone', h => /tel|komork/.test(h)],
+  ['email', h => /mail/.test(h)],
+  ['pkk', h => /pkk|profil/.test(h)],
+  ['kurs', h => /rodzaj|typkursu/.test(h)],
+  ['has', h => /posiad|uprawnienia|maju|majakat/.test(h)],
+  ['lic', h => /prawajazdy|nrpj|dokument/.test(h)],
+  ['cat', h => /kategor|^kat$/.test(h)],
+  ['date', h => /data/.test(h)],
+  ['note', h => /uwag|notat|opis/.test(h)],
+];
+function toIsoDate(v) {
+  if (v instanceof Date && !isNaN(v)) return new Date(v.getTime() - v.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10);
+  const t = String(v ?? '').trim(); let m;
+  if ((m = t.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/))) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  if ((m = t.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/))) return `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return '';
+}
+function rowsToRecords(rows) {
+  // szukaj wiersza nagłówka w pierwszych 10 wierszach
+  let hi = -1, map = {};
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const m = {};
+    (rows[i] || []).forEach((h, j) => { const n = norm(h); if (!n) return; for (const [k, test] of COLS) if (!(k in m) && test(n)) { m[k] = j; break; } });
+    if (('name' in m || 'last' in m) && Object.keys(m).length >= 2) { hi = i; map = m; break; }
+  }
+  if (hi < 0) throw new Error('Nie znaleziono nagłówków. Pierwszy wiersz musi mieć nazwy kolumn, np. „Imię i nazwisko”, „Telefon”, „Numer PKK”.');
+  const out = [], bad = [];
+  for (const row of rows.slice(hi + 1)) {
+    if (!row || !row.some(c => String(c ?? '').trim())) continue;
+    const g = k => k in map ? row[map[k]] : '';
+    const str = k => String(g(k) ?? '').trim();
+    const r = {};
+    r.name = str('name') || [str('first'), str('last')].filter(Boolean).join(' ');
+    if (!r.name) continue;
+    const ph = str('phone').replace(/\D/g, '').replace(/^48(?=\d{9}$)/, '');
+    r.phone = ph.length === 9 ? ph.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3') : str('phone');
+    r.email = str('email').toLowerCase();
+    const rawPkk = str('pkk').replace(/^'/, '');
+    r.pkk = rawPkk.replace(/\D/g, '');
+    if (rawPkk && (/e\+?\d/i.test(rawPkk) || r.pkk.length !== 20)) bad.push(r.name);
+    if (/e\+?\d/i.test(rawPkk)) r.pkk = '';
+    r.cat = str('cat').toUpperCase().replace(/\s|\+/g, '');
+    const k = norm(g('kurs'));
+    r.kurs = /uzup/.test(k) ? 'Uzupełniający' : 'Podstawowy';
+    r.has = str('has'); r.lic = str('lic'); r.note = str('note');
+    r.date = toIsoDate(g('date')) || new Date().toISOString().slice(0, 10);
+    out.push(r);
+  }
+  return { out, bad };
+}
+$('btnXls').onclick = () => $('xlsFile').click();
+$('xlsFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const st = t => $('status').textContent = t;
+  try {
+    if (!window.XLSX) { st('Ładuję moduł Excela…'); await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); }); }
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true, codepage: 65001 });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+    const { out, bad } = rowsToRecords(rows);
+    const d = load(), have = new Set(d.map(x => x.pkk).filter(Boolean));
+    let added = 0, dup = 0;
+    out.forEach((r, i) => {
+      if (r.pkk && have.has(r.pkk)) { dup++; return; }
+      d.push({ id: Date.now().toString(36) + i, ...r }); if (r.pkk) have.add(r.pkk); added++;
+    });
+    store(d); render();
+    let msg = `✅ Zaimportowano ${added} kursantów z pliku „${f.name}”.`;
+    if (dup) msg += ` Pominięto ${dup} (ten sam numer PKK już jest w rejestrze).`;
+    if (bad.length) msg += ` ⚠️ Sprawdź numer PKK u: ${bad.slice(0, 5).join(', ')}${bad.length > 5 ? '…' : ''} – w Excelu kolumna PKK musi być ustawiona jako „Tekst”, inaczej Excel obcina cyfry.`;
+    st(msg); window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) {
+    console.error(err); st('❌ ' + (err && err.message ? err.message : 'Nie udało się wczytać pliku.'));
+  }
 };
 
 // ---------- Rozpoznawanie ze zdjęcia ----------
