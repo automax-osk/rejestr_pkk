@@ -42,10 +42,25 @@
   pre { white-space:pre-wrap; font-size:.75rem; background:#f6f8fa; padding:8px; border-radius:6px; max-height:200px; overflow:auto; }
   .empty { color:var(--mut); text-align:center; padding:20px; }
   .tablewrap { overflow-x:auto; }
+  #printArea { display:none; }
+  @media print {
+    body { background:#fff; }
+    body > *:not(#printArea) { display:none !important; }
+    #printArea { display:block; color:#000; font-size:12pt; }
+    @page { size:A4; margin:18mm; }
+  }
+  .pa h1 { font-size:18pt; margin:0 0 2px; }
+  .pa .sub { color:#444; margin:0 0 18px; font-size:10pt; }
+  .pa table { width:100%; border-collapse:collapse; font-size:12pt; }
+  .pa td { border:1px solid #999; padding:9px 10px; }
+  .pa td:first-child { width:35%; background:#f2f2f2; font-weight:600; }
+  .pa .sign { display:flex; justify-content:space-between; margin-top:60px; font-size:10pt; }
+  .pa .sign div { width:42%; border-top:1px solid #000; text-align:center; padding-top:4px; }
 </style>
 </head>
 <body>
 <header>
+  <div style="background:#fff;border-radius:8px;padding:6px 10px;display:inline-block;margin-bottom:8px;width:230px;max-width:70%"><svg style="display:block;width:100%" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 150">  <text x="300" y="30" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="600" fill="#3a2a8c" letter-spacing="1.5">Ośrodek Szkolenia Kierowców</text>  <rect x="8" y="46" width="96" height="96" rx="6" fill="#1e88e5" stroke="#0d47a1" stroke-width="3"/>  <path d="M36 62 h20 v52 h30 v18 h-50 z" fill="#fff" stroke="#0d2a5c" stroke-width="2.5"/>  <text x="118" y="128" font-family="'Times New Roman',Times,serif" font-size="74" font-weight="700" fill="#ffe600" stroke="#2b2b2b" stroke-width="2.2" paint-order="stroke">AUTO-</text>  <text x="372" y="130" font-family="'Arial Black',Arial,Helvetica,sans-serif" font-size="78" font-weight="900" font-style="italic" fill="#e53212" stroke="#7a1406" stroke-width="1.5" paint-order="stroke" transform="skewX(-8)">MAX</text></svg></div>
   <h1>📋 Rejestr kursantów – Profil PKK</h1>
   <p>Zdjęcie profilu → automatyczny odczyt danych → zapis w rejestrze</p>
 </header>
@@ -67,7 +82,7 @@
       <div class="full"><label>Imię i nazwisko</label><input id="f_name"></div>
       <div><label>Telefon</label><input id="f_phone" inputmode="tel"></div>
       <div><label>E-mail</label><input id="f_email" inputmode="email"></div>
-      <div class="full"><label>Numer PKK (20 cyfr)</label><input id="f_pkk" inputmode="numeric"></div>
+      <div class="full"><label>Numer PKK (20 cyfr)</label><div class="row" style="flex-wrap:nowrap;align-items:center"><input id="f_pkk" inputmode="numeric"><button class="btn sec" id="btnScan" type="button" style="padding:10px 12px;white-space:nowrap" title="Skanuj kod kreskowy">▥ Skanuj</button></div></div>
       <div><label>Kategoria szkolenia</label><input id="f_cat"></div>
       <div><label>Rodzaj kursu</label><select id="f_kurs"><option>Podstawowy</option><option>Uzupełniający</option></select></div>
       <div><label>Posiadane kategorie</label><input id="f_has" placeholder="np. AM, B, B1"></div>
@@ -97,6 +112,15 @@
   </div>
 
 </main>
+<div id="printArea" class="pa"></div>
+<div id="scanBox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99;flex-direction:column;align-items:center;justify-content:center;padding:16px">
+  <div style="position:relative;width:100%;max-width:520px">
+    <video id="scanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000"></video>
+    <div style="position:absolute;left:6%;right:6%;top:50%;height:2px;background:#ff3b30;box-shadow:0 0 8px #ff3b30"></div>
+  </div>
+  <p id="scanMsg" style="color:#fff;text-align:center;margin:14px 0">Nakieruj aparat na kod kreskowy przy numerze PKK</p>
+  <button class="btn red" id="btnScanClose" type="button">✕ Zamknij</button>
+</div>
 <script>
 const KEY = 'rejestr_pkk_v1';
 const $ = id => document.getElementById(id);
@@ -123,6 +147,7 @@ function render() {
       <td class="pkk">${esc(fmtPkk(r.pkk))}</td>
       <td><span class="tag">${esc(r.cat)}</span>${r.kurs ? `<br><small>${esc(r.kurs)}</small>` : ''}</td>
       <td><button class="btn sec small" onclick="edit('${r.id}')">✏️</button>
+          <button class="btn sec small" onclick="printOne('${r.id}')">🖨</button>
           <button class="btn sec small" onclick="del('${r.id}')">🗑</button></td>
     </tr>`).join('') : '<tr><td colspan="6" class="empty">Brak wpisów</td></tr>';
 }
@@ -154,6 +179,20 @@ window.edit = id => {
   if (!r.kurs) $('f_kurs').value = 'Podstawowy';
   editId = id; $('btnSave').textContent = '💾 Zapisz zmiany';
   window.scrollTo({ top: $('f_name').getBoundingClientRect().top + scrollY - 80, behavior:'smooth' });
+};
+window.printOne = id => {
+  const r = load().find(x => x.id === id); if (!r) return;
+  const rows = [['Imię i nazwisko', r.name], ['Telefon', r.phone], ['E-mail', r.email], ['Numer PKK', fmtPkk(r.pkk)],
+    ['Kategoria', r.cat], ['Rodzaj kursu', r.kurs], ['Posiadane kategorie', r.has], ['Nr prawa jazdy', r.lic],
+    ['Data zapisu', fmtDate(r.date)], ['Uwagi', r.note]];
+  $('printArea').innerHTML = `<div style="width:330px;margin-bottom:14px">${document.querySelector('header svg').outerHTML}</div>
+    <h1>Karta kursanta</h1>
+    <p class="sub">Auto-MAX Szkoła nauki jazdy · wydruk z dnia ${new Date().toLocaleDateString('pl-PL')}</p>
+    <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${esc(v) || '&nbsp;'}</td></tr>`).join('')}</table>
+    <div class="sign"><div>Podpis kursanta</div><div>Podpis pracownika OSK</div></div>`;
+  const t = document.title; document.title = 'Kursant - ' + (r.name || 'PKK');
+  window.print();
+  setTimeout(() => document.title = t, 1000);
 };
 window.del = id => { if (confirm('Usunąć ten wpis?')) { store(load().filter(x => x.id !== id)); render(); } };
 $('search').oninput = render;
@@ -286,6 +325,56 @@ $('file').onchange = async e => {
   } catch (err) {
     console.error(err); st('❌ Błąd odczytu. Sprawdź połączenie z internetem i spróbuj ponownie.');
   } finally { setTimeout(() => bar.style.display = 'none', 800); }
+};
+
+// ---------- Skaner kodu kreskowego (na żywo z aparatu) ----------
+let scanStream = null, scanStop = false, zxReader = null;
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+function closeScan() {
+  scanStop = true;
+  if (zxReader) { try { zxReader.reset(); } catch(_) {} zxReader = null; }
+  if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  $('scanBox').style.display = 'none';
+}
+function scanHit(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (d.length !== 20) { $('scanMsg').textContent = `Odczytano „${raw}” – to nie wygląda na numer PKK, celuj w kod obok numeru…`; return false; }
+  const el = $('f_pkk'); el.value = fmtPkk(d); el.classList.remove('miss'); el.classList.add('found');
+  if (navigator.vibrate) navigator.vibrate(120);
+  closeScan(); $('status').textContent = '✅ Numer PKK zeskanowany z kodu kreskowego.';
+  return true;
+}
+$('btnScanClose').onclick = closeScan;
+$('btnScan').onclick = async () => {
+  const box = $('scanBox'), video = $('scanVideo'), msg = $('scanMsg');
+  scanStop = false; box.style.display = 'flex';
+  msg.textContent = 'Uruchamiam aparat…';
+  try {
+    if ('BarcodeDetector' in window) {
+      const fmts = await BarcodeDetector.getSupportedFormats().catch(() => []);
+      if (fmts.includes('code_128')) {
+        scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } });
+        video.srcObject = scanStream; await video.play();
+        msg.textContent = 'Nakieruj aparat na kod kreskowy przy numerze PKK';
+        const det = new BarcodeDetector({ formats: fmts.filter(f => ['code_128','code_39','itf','ean_13','pdf417','qr_code','data_matrix'].includes(f)) });
+        const loop = async () => {
+          if (scanStop) return;
+          try { for (const c of await det.detect(video)) if (scanHit(c.rawValue)) return; } catch(_) {}
+          setTimeout(loop, 150);
+        };
+        return loop();
+      }
+    }
+    // iPhone i starsze przeglądarki – biblioteka ZXing
+    if (!window.ZXing) { msg.textContent = 'Ładuję skaner…'; await loadScript('https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js'); }
+    if (scanStop) return;
+    zxReader = new ZXing.BrowserMultiFormatReader();
+    msg.textContent = 'Nakieruj aparat na kod kreskowy przy numerze PKK';
+    await zxReader.decodeFromConstraints({ video: { facingMode: 'environment' } }, video, (res) => { if (res && !scanStop) scanHit(res.getText()); });
+  } catch (err) {
+    console.error(err);
+    msg.textContent = '❌ Nie udało się włączyć aparatu. Zezwól przeglądarce na dostęp do aparatu i spróbuj ponownie.';
+  }
 };
 
 clearForm(); render();
