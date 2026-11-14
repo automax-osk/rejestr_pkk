@@ -112,6 +112,7 @@
       <input type="file" id="restoreFile" accept=".json" hidden>
     </div>
   </div>
+  <div class="card" id="cloudCard"></div>
 
 </main>
 <footer style="text-align:center;color:var(--mut);font-size:.85rem;padding:6px 12px 24px">Program przygotował: <svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:-4px"><circle cx="12" cy="12" r="12" fill="#1877f2"/><path d="M13.4 19.5v-6h2l.3-2.4h-2.3V9.6c0-.7.2-1.2 1.2-1.2h1.2V6.3c-.2 0-1-.1-1.8-.1-1.8 0-3 1.1-3 3.1v1.8H9v2.4h2v6z" fill="#fff"/></svg> <b>Benek Benek</b></footer>
@@ -132,7 +133,20 @@ let editId = null;
 
 // ---------- Rejestr ----------
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch(e) { return []; } };
-const store = d => { localStorage.setItem(KEY, JSON.stringify(d)); cloudSchedule(); };
+// zapis z zapamiętaniem, co i kiedy się zmieniło (potrzebne do łączenia rejestrów z kilku komputerów)
+const DEL_KEY = 'rejestr_pkk_del';
+const getDel = () => { try { return JSON.parse(localStorage.getItem(DEL_KEY)) || {}; } catch(e) { return {}; } };
+const store = d => {
+  const now = new Date().toISOString(), prev = load(), pm = {};
+  prev.forEach(r => pm[r.id] = r);
+  const strip = r => JSON.stringify({ ...r, u:0 });
+  d.forEach(r => { const o = pm[r.id]; if (!o || strip(o) !== strip(r)) r.u = now; else r.u = o.u; });
+  const ids = new Set(d.map(r => r.id)), del = getDel();
+  prev.forEach(r => { if (!ids.has(r.id)) del[r.id] = now; }); // usunięci – zapamiętaj, żeby nie wrócili z innego komputera
+  localStorage.setItem(DEL_KEY, JSON.stringify(del));
+  localStorage.setItem(KEY, JSON.stringify(d)); localStorage.setItem('rejestr_pkk_changed', now); cloudSchedule();
+};
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtPkk = p => (p||'').replace(/\D/g,'').replace(/(\d{5})(?=\d)/g,'$1 ');
 const fmtDate = d => d ? d.split('-').reverse().join('.') : '';
@@ -171,7 +185,7 @@ $('btnSave').onclick = () => {
   const d = load();
   if (!editId && r.pkk && d.some(x => x.pkk === r.pkk) && !confirm('Ten numer PKK jest już w rejestrze. Dodać ponownie?')) return;
   if (editId) { const i = d.findIndex(x => x.id === editId); d[i] = { ...d[i], ...r }; }
-  else d.push({ id: Date.now().toString(36), ...r });
+  else d.push({ id: newId(), ...r });
   store(d); clearForm(); render();
   $('preview').style.display = 'none'; $('status').textContent = '✅ Zapisano. Możesz zrobić zdjęcie kolejnego profilu.';
 };
@@ -200,54 +214,221 @@ window.printOne = id => {
 window.del = id => { if (confirm('Usunąć ten wpis?')) { store(load().filter(x => x.id !== id)); render(); } };
 $('search').oninput = render;
 
-// ---------- Kopia w chmurze (wspólna z programem „Grafik pracy instruktorów”) ----------
-// Ustawienia i połączenie z Dyskiem Google konfiguruje się w grafiku; rejestr korzysta z nich,
-// bo oba programy są pod tym samym adresem (automax-osk.github.io). Kopia zawiera grafik i rejestr razem.
-const CKEY = 'automax_cloud_v1', GKEY = 'automax_grafik_v1', CUR_FILE = 'grafik-automax-biezacy.json';
-let cloudT = null;
-function cloudCfg() { try { return JSON.parse(localStorage.getItem(CKEY)) || null; } catch(e) { return null; } }
-function cloudNote(txt, warn) {
-  let el = $('cloudNote');
-  if (!el) { el = document.createElement('div'); el.id = 'cloudNote'; el.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:40;font-size:.8rem;padding:6px 12px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.2)'; document.body.appendChild(el); }
-  el.textContent = txt; el.style.background = warn ? '#ffcc80' : '#1565c0'; el.style.color = warn ? '#5d3a00' : '#fff'; el.hidden = !txt;
-}
-function cloudStatus() {
-  const c = cloudCfg();
-  if (!c || !c.clientId || !c.email) return cloudNote('');
-  const t = c.lastSave ? new Date(c.lastSave).toLocaleString('pl-PL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
-  cloudNote('☁️ kopia w chmurze: ' + t);
-}
-function cloudSchedule() { const c = cloudCfg(); if (!c || !c.email || !c.auto) return; clearTimeout(cloudT); cloudT = setTimeout(cloudPush, 3000); }
-async function cloudPush() {
-  const c = cloudCfg(); if (!c || !c.email || !c.auto) return;
-  if (!c.token || Date.now() > (c.tokenExp || 0) - 60000 || !c.folderId) {
-    return cloudNote('☁️ zmiany zapiszą się w chmurze po otwarciu grafiku', true);
+// ---------- Kopia rejestru w chmurze (Dysk Google) ----------
+// Rejestr zapisuje WŁASNY plik kopii (rejestr-pkk-biezacy.json) po każdej zmianie i raz dziennie kopię z datą.
+// Z chmury nic nie pobiera sam – tylko na żądanie („Przywróć z chmury”, chronione hasłem).
+// Ustawienia (klucz Google, folder) są wspólne z programem „Grafik pracy instruktorów”, jeśli działa w tej samej przeglądarce.
+const CKEY = 'automax_cloud_v1', CHG_KEY = 'rejestr_pkk_changed', RFILE = 'rejestr-pkk-biezacy.json', rDay = d => `rejestr-pkk-${d}.json`;
+const DRV = 'https://www.googleapis.com/drive/v3/files', UPL = 'https://www.googleapis.com/upload/drive/v3/files';
+const MASTER = 'b54a59ce92510afb18560b4c8b49da2e0b7596c2dac199874279666e84ed4828';
+const C_DEF = { clientId:'', folder:'Auto-MAX – kopie grafiku', device:'komputer', email:'', token:'', tokenExp:0, folderId:'', folderName:'', keep:30, auto:true };
+let cloudT = null, cBusy = false, cNeedToken = false, cErr = '', tokenClient = null, tokenWait = [];
+const cfg = () => { try { return Object.assign({}, C_DEF, JSON.parse(localStorage.getItem(CKEY)) || {}); } catch(e) { return Object.assign({}, C_DEF); } };
+const setCfg = o => { const c = Object.assign(cfg(), o); localStorage.setItem(CKEY, JSON.stringify(c)); return c; };
+const tokOk = c => !!c.token && Date.now() < (c.tokenExp || 0) - 60000;
+const fmtDT = iso => iso ? new Date(iso).toLocaleString('pl-PL', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+const todayL = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+function sha256(str) {
+  const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  const b = new TextEncoder().encode(str), l = b.length, n = ((l + 9 + 63) >> 6) << 6, m = new Uint8Array(n);
+  m.set(b); m[l] = 0x80; const dv = new DataView(m.buffer); dv.setUint32(n - 4, l * 8); dv.setUint32(n - 8, Math.floor(l / 0x20000000));
+  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const W = new Uint32Array(64), r = (x, k) => (x >>> k) | (x << (32 - k));
+  for (let o = 0; o < n; o += 64) {
+    for (let i = 0; i < 16; i++) W[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) { const s0 = r(W[i-15],7) ^ r(W[i-15],18) ^ (W[i-15] >>> 3), s1 = r(W[i-2],17) ^ r(W[i-2],19) ^ (W[i-2] >>> 10); W[i] = (W[i-16] + s0 + W[i-7] + s1) | 0; }
+    let [a,bb,c,d,e,f,g,h] = H;
+    for (let i = 0; i < 64; i++) { const t1 = (h + (r(e,6) ^ r(e,11) ^ r(e,25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0, t2 = ((r(a,2) ^ r(a,13) ^ r(a,22)) + ((a & bb) ^ (a & c) ^ (bb & c))) | 0; h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = bb; bb = a; a = (t1 + t2) | 0; }
+    H = H.map((x, i) => (x + [a,bb,c,d,e,f,g,h][i]) | 0);
   }
-  let grafik = null; try { grafik = JSON.parse(localStorage.getItem(GKEY)); } catch(e) {}
-  if (!grafik) return cloudNote('☁️ otwórz grafik, żeby zapisać kopię w chmurze', true);
-  const H = { Authorization:'Bearer ' + c.token };
-  const body = JSON.stringify({ v:2, app:'automax', savedAt:new Date().toISOString(), grafik, pkk:load() });
-  try {
-    cloudNote('☁️ zapisywanie…');
-    const q = `name='${CUR_FILE}' and '${c.folderId}' in parents and trashed=false`;
-    const lr = await fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)', { headers:H });
-    if (!lr.ok) throw new Error(lr.status);
-    const f = ((await lr.json()).files || [])[0];
-    const b = 'automax' + Date.now().toString(36), meta = { appProperties:{ device:c.device || 'komputer', savedAt:new Date().toISOString() } };
-    const mp = m => `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(m)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
-    const up = f
-      ? await fetch(`https://www.googleapis.com/upload/drive/v3/files/${f.id}?uploadType=multipart&fields=id,modifiedTime`, { method:'PATCH', headers:{ ...H, 'Content-Type':'multipart/related; boundary=' + b }, body:mp(meta) })
-      : await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', { method:'POST', headers:{ ...H, 'Content-Type':'multipart/related; boundary=' + b }, body:mp({ ...meta, name:CUR_FILE, parents:[c.folderId], mimeType:'application/json' }) });
-    if (!up.ok) throw new Error(up.status);
-    const j = await up.json(), c2 = cloudCfg() || c;
-    c2.lastSave = new Date().toISOString(); c2.lastSync = j.modifiedTime || c2.lastSave; c2.lastErr = '';
-    localStorage.setItem(CKEY, JSON.stringify(c2));
-    cloudStatus();
-  } catch(e) { cloudNote('☁️ nie udało się zapisać w chmurze – zapisze się po otwarciu grafiku', true); }
+  return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
 }
-// gdy grafik pobierze dane z chmury (w innym oknie), odśwież listę
-window.addEventListener('storage', e => { if (e.key === KEY) render(); if (e.key === CKEY) cloudStatus(); });
-cloudStatus();
+// prosta ramka dialogowa: zwraca tablicę wartości albo null
+function dlg(title, text, fields, ok = 'OK', check) {
+  return new Promise(res => {
+    const bg = document.createElement('div');
+    bg.style.cssText = 'position:fixed;inset:0;background:rgba(10,20,40,.45);display:flex;align-items:center;justify-content:center;z-index:80;padding:16px';
+    bg.innerHTML = `<form style="background:#fff;border-radius:14px;padding:18px;width:100%;max-width:420px;max-height:90vh;overflow:auto">
+      <h2 style="margin:0 0 6px">${title}</h2>${text ? `<p style="margin:0 0 8px;color:#6b7686;font-size:.9rem">${text}</p>` : ''}
+      ${fields.map((f, i) => `<label>${esc(f.label)}</label><input data-i="${i}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}" placeholder="${esc(f.ph || '')}" autocomplete="off">`).join('')}
+      <div class="er" style="color:#c62828;font-size:.85rem;min-height:1.1em;margin:6px 0"></div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn sec small" data-x>Anuluj</button><button class="btn small">${ok}</button></div></form>`;
+    document.body.appendChild(bg);
+    const form = bg.querySelector('form'), ins = [...bg.querySelectorAll('input')], close = v => { bg.remove(); res(v); };
+    bg.querySelector('[data-x]').onclick = () => close(null);
+    form.onsubmit = e => { e.preventDefault(); const v = ins.map(i => i.value), m = check ? check(v) : ''; if (m) { bg.querySelector('.er').textContent = m; return; } close(v); };
+    setTimeout(() => ins[0] && ins[0].focus(), 30);
+  });
+}
+// hasło: to samo co w grafiku (jeśli grafik jest w tej przeglądarce) albo hasło awaryjne
+async function askPw(what) {
+  let gp = ''; try { gp = (JSON.parse(localStorage.getItem('automax_grafik_v1')) || {}).settings?.pwHash || ''; } catch(e) {}
+  const ok = h => h === MASTER || (gp && h === gp);
+  const r = await dlg('🔒 Podaj hasło', what + (gp ? '' : '<br>W tej przeglądarce nie ma grafiku z hasłem – użyj hasła awaryjnego.'), [{ label:'Hasło', type:'password' }], 'Potwierdź',
+    v => ok(sha256('automax|' + v[0])) ? '' : 'Złe hasło.');
+  return !!r;
+}
+// logowanie Google
+function loadGIS() {
+  return window.google?.accounts?.oauth2 ? Promise.resolve() : (loadGIS.p ||= new Promise((ok, no) => {
+    const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.onload = ok; sc.onerror = () => { loadGIS.p = null; no(); }; document.head.appendChild(sc);
+  }));
+}
+function tc() {
+  const c = cfg(); if (tokenClient) return tokenClient; if (!window.google?.accounts?.oauth2 || !c.clientId) return null;
+  const done = f => { const w = tokenWait; tokenWait = []; w.forEach(f); };
+  tokenClient = google.accounts.oauth2.initTokenClient({ client_id:c.clientId, scope:'https://www.googleapis.com/auth/drive.file openid email',
+    callback: r => r.error ? done(w => w.no(new Error(r.error))) : (setCfg({ token:r.access_token, tokenExp:Date.now() + (Number(r.expires_in) || 3600) * 1000 }), done(w => w.ok())),
+    error_callback: () => done(w => w.no(new Error('logowanie przerwane – sprawdź blokadę okienek'))) });
+  return tokenClient;
+}
+function reqToken(prompt = '') { const t = tc(); if (!t) { loadGIS().catch(() => {}); return Promise.reject(new Error('logowanie Google jeszcze się ładuje – kliknij ponownie')); }
+  return new Promise((ok, no) => { tokenWait.push({ ok, no }); t.requestAccessToken({ prompt, login_hint:cfg().email || undefined }); }); }
+async function gf(url, opt = {}) {
+  const c = cfg(); if (!tokOk(c)) { const e = new Error('wygasło połączenie'); e.tok = true; throw e; }
+  let r; try { r = await fetch(url, { ...opt, headers:{ ...(opt.headers || {}), Authorization:'Bearer ' + c.token } }); } catch(e) { throw new Error('brak internetu'); }
+  if (r.status === 401) { setCfg({ token:'' }); const e = new Error('wygasło połączenie'); e.tok = true; throw e; }
+  if (!r.ok) { const e = new Error('Dysk Google: ' + r.status); e.status = r.status; throw e; }
+  return r;
+}
+async function folderId() {
+  const c = cfg(); if (c.folderId && c.folderName === c.folder) return c.folderId;
+  const q = `name='${c.folder.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  let id = ((await (await gf(`${DRV}?q=${encodeURIComponent(q)}&fields=files(id)`)).json()).files || [])[0]?.id;
+  if (!id) id = (await (await gf(`${DRV}?fields=id`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ name:c.folder, mimeType:'application/vnd.google-apps.folder' }) })).json()).id;
+  setCfg({ folderId:id, folderName:c.folder }); return id;
+}
+async function putR(name, body, savedAt, retry = true) {
+  try {
+    const fid = await folderId(), c = cfg();
+    const f = ((await (await gf(`${DRV}?q=${encodeURIComponent(`name='${name}' and '${fid}' in parents and trashed=false`)}&fields=files(id)`)).json()).files || [])[0];
+    const b = 'automax' + Date.now().toString(36), meta = { appProperties:{ device:c.device || 'komputer', savedAt } };
+    const mp = m => `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(m)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+    const H = { 'Content-Type':'multipart/related; boundary=' + b };
+    return await (f ? gf(`${UPL}/${f.id}?uploadType=multipart&fields=id,modifiedTime`, { method:'PATCH', headers:H, body:mp(meta) })
+                    : gf(`${UPL}?uploadType=multipart&fields=id,modifiedTime`, { method:'POST', headers:H, body:mp({ ...meta, name, parents:[fid], mimeType:'application/json' }) }));
+  } catch(e) { if (retry && e.status === 404) { setCfg({ folderId:'' }); return putR(name, body, savedAt, false); } throw e; }
+}
+/* łączenie dwóch list kursantów (lokalnej i z chmury) */
+function mergeR(a, delA, b, delB) {
+  const del = { ...delB };
+  Object.entries(delA).forEach(([id, t]) => { if (!del[id] || t > del[id]) del[id] = t; });
+  const map = new Map();
+  [...b, ...a].forEach(r => { if (!r || !r.id) return; const o = map.get(r.id); if (!o || (r.u || '') >= (o.u || '')) map.set(r.id, r); });
+  const pkk = [...map.values()].filter(r => !del[r.id] || (r.u || '') > del[r.id]);
+  // zachowaj kolejność: najpierw lokalne, potem nowe z chmury
+  const order = new Map(a.map((r, i) => [r.id, i]));
+  pkk.sort((x, y) => (order.has(x.id) ? order.get(x.id) : 1e9) - (order.has(y.id) ? order.get(y.id) : 1e9));
+  return { pkk, del };
+}
+function cloudSchedule() { const c = cfg(); if (!c.clientId || !c.email || !c.auto) return; clearTimeout(cloudT); cloudT = setTimeout(cloudPush, 3000); }
+async function cloudPush() {
+  const c = cfg(); if (!c.clientId || !c.email) return;
+  if (cBusy) return cloudSchedule();
+  if (!tokOk(c)) { cNeedToken = true; return cloudCard(); }
+  cBusy = true; cloudCard();
+  try {
+    // 1) dociągnij kopię z chmury i połącz: nowi kursanci z innych komputerów dochodzą, nowsza wersja wpisu wygrywa,
+    //    usunięcia przenoszą się na wszystkie komputery
+    const fid = await folderId();
+    const ex = ((await (await gf(`${DRV}?q=${encodeURIComponent(`name='${RFILE}' and '${fid}' in parents and trashed=false`)}&fields=files(id)`)).json()).files || [])[0];
+    let remote = null;
+    if (ex) { try { remote = JSON.parse(await (await gf(`${DRV}/${ex.id}?alt=media`)).text()); } catch(e) { remote = null; } }
+    const local = load(), m = mergeR(local, getDel(), remote ? (Array.isArray(remote) ? remote : remote.pkk || []) : [], remote && remote.del || {});
+    localStorage.setItem(DEL_KEY, JSON.stringify(m.del));
+    if (JSON.stringify(m.pkk) !== JSON.stringify(local)) { localStorage.setItem(KEY, JSON.stringify(m.pkk)); render(); }
+    // 2) wyślij połączoną listę
+    const savedAt = new Date().toISOString(), body = JSON.stringify({ v:2, app:'rejestr', savedAt, pkk:m.pkk, del:m.del });
+    await putR(RFILE, body, savedAt);
+    localStorage.setItem(CHG_KEY, savedAt);
+    const day = todayL();
+    if (cfg().rLastDaily !== day) { // kopia dzienna rejestru + usuwanie starych
+      await putR(rDay(day), body, savedAt); setCfg({ rLastDaily:day });
+      const fid = await folderId(), lim = new Date(Date.now() - (Number(cfg().keep) || 30) * 864e5).toISOString().slice(0, 10);
+      const fl = (await (await gf(`${DRV}?q=${encodeURIComponent(`'${fid}' in parents and trashed=false and name contains 'rejestr-pkk-'`)}&fields=files(id,name)`)).json()).files || [];
+      for (const f of fl) { const m = f.name.match(/^rejestr-pkk-(\d{4}-\d{2}-\d{2})\.json$/); if (m && m[1] < lim) await gf(`${DRV}/${f.id}`, { method:'DELETE' }).catch(() => {}); }
+    }
+    setCfg({ rLastSave:savedAt }); cErr = '';
+  } catch(e) { if (e.tok) cNeedToken = true; else cErr = e.message; }
+  cBusy = false; cloudCard();
+}
+async function cloudSettings() {
+  if (cfg().clientId && !(await askPw('Zmiana ustawień kopii w chmurze.'))) return;
+  const c = cfg();
+  const r = await dlg('☁️ Ustawienia kopii w chmurze', 'Wpisz <b>ten sam klucz Google i nazwę folderu co w grafiku</b> – kopie trafią do tego samego folderu na Dysku.',
+    [{ label:'Klucz Google (Client ID)', value:c.clientId, ph:'…apps.googleusercontent.com' }, { label:'Nazwa folderu na Dysku', value:c.folder }, { label:'Nazwa tego komputera', value:c.device, ph:'np. biuro' }], 'Zapisz',
+    v => v[0] && !/\.apps\.googleusercontent\.com$/.test(v[0].trim()) ? 'Klucz powinien kończyć się na .apps.googleusercontent.com' : (!v[1].trim() ? 'Podaj nazwę folderu.' : ''));
+  if (!r) return;
+  const ch = r[0].trim() !== c.clientId;
+  if (ch) tokenClient = null;
+  setCfg({ clientId:r[0].trim(), folder:r[1].trim(), device:r[2].trim() || 'komputer', ...(ch ? { email:'', token:'', tokenExp:0, folderId:'' } : {}), ...(r[1].trim() !== c.folder ? { folderId:'' } : {}) });
+  if (cfg().clientId) loadGIS().then(tc).catch(() => {});
+  cloudCard();
+}
+async function cloudConnect() {
+  if (!cfg().clientId) return cloudSettings();
+  if (!(await askPw(cfg().email ? 'Zmiana konta Google.' : 'Połączenie rejestru z Dyskiem Google.'))) return;
+  try {
+    await reqToken(cfg().email ? 'select_account consent' : 'consent');
+    const u = await (await gf('https://www.googleapis.com/oauth2/v3/userinfo')).json();
+    setCfg({ email:u.email || 'konto Google', auto:true }); cErr = ''; cNeedToken = false; cloudCard(); cloudPush();
+  } catch(e) { cErr = e.message; cloudCard(); }
+}
+async function cloudRestore(older) {
+  if (!(await askPw('Przywrócenie rejestru z chmury zastąpi rejestr na tym komputerze.'))) return;
+  try {
+    if (!tokOk(cfg())) await reqToken('');
+    const fid = await folderId();
+    const fl = (await (await gf(`${DRV}?q=${encodeURIComponent(`'${fid}' in parents and trashed=false and name contains 'rejestr-pkk-'`)}&orderBy=modifiedTime desc&fields=files(id,name,modifiedTime,appProperties)`)).json()).files || [];
+    if (!fl.length) return alert('W chmurze nie ma jeszcze kopii rejestru.');
+    let f = fl[0];
+    if (older) {
+      const list = fl.slice(0, 40);
+      const r = await dlg('☁️ Kopie rejestru w chmurze', list.map((x, i) => `<b>${i + 1}.</b> ${fmtDT(x.modifiedTime)} – ${x.name === RFILE ? 'bieżąca' : 'dzienna'} (${esc(x.appProperties?.device || '?')})`).join('<br>'),
+        [{ label:'Numer kopii', type:'number', value:1 }], 'Przywróć', v => v[0] >= 1 && v[0] <= list.length ? '' : 'Podaj numer z listy.');
+      if (!r) return; f = list[Number(r[0]) - 1];
+    } else if (!confirm(`Najnowsza kopia rejestru: ${fmtDT(f.modifiedTime)} (${f.appProperties?.device || '?'}).\nPrzywrócić? Rejestr na tym komputerze zostanie zastąpiony.`)) return;
+    const d = JSON.parse(await (await gf(`${DRV}/${f.id}?alt=media`)).text());
+    const arr = Array.isArray(d) ? d : d.pkk; if (!Array.isArray(arr)) throw new Error('to nie jest kopia rejestru');
+    const nowR = new Date().toISOString(); arr.forEach(r => r.u = nowR); // przywrócone wpisy mają pierwszeństwo przy łączeniu
+    const dl = getDel(); arr.forEach(r => delete dl[r.id]); localStorage.setItem(DEL_KEY, JSON.stringify(dl));
+    localStorage.setItem(KEY, JSON.stringify(arr)); localStorage.setItem(CHG_KEY, nowR);
+    render(); cloudSchedule(); alert(`Przywrócono rejestr z chmury (kursantów: ${arr.length}).`);
+  } catch(e) { cErr = e.message; cloudCard(); }
+}
+function cloudCard() {
+  const el = $('cloudCard'); if (!el) return; const c = cfg();
+  el.innerHTML = `<h2>☁️ Kopia rejestru w chmurze (Dysk Google)</h2>
+    ${c.email ? '<p style="font-size:.8rem;color:#6b7686;margin:0 0 6px">Rejestr może działać na kilku komputerach – przy każdym zapisie kursanci z innych komputerów są dołączani, a usunięcia się przenoszą.</p>' : ''}
+    ${!c.clientId ? `<p style="font-size:.88rem;color:#6b7686;margin:0 0 8px">Wyłączona. Dodatek opcjonalny – żeby włączyć, wpisz ten sam klucz Google co w grafiku i połącz z kontem.</p>`
+      : `<p style="font-size:.88rem;margin:0 0 8px;line-height:1.6">Konto: <b>${c.email ? esc(c.email) : 'niepołączone'}</b> · folder: <b>${esc(c.folder)}</b> · ten komputer: <b>${esc(c.device)}</b><br>
+         Ostatnia kopia rejestru: <b>${fmtDT(c.rLastSave)}</b> · zapis automatyczny po każdej zmianie
+         ${cBusy ? '<br>☁️ zapisywanie…' : ''}${cNeedToken && c.email ? '<br><span style="color:#b45309;font-weight:600">☁️ Połączenie wygasło – kliknij gdziekolwiek, aby odnowić i zapisać kopię.</span>' : ''}
+         ${cErr ? `<br><span style="color:#c62828">⚠️ ${esc(cErr)}</span>` : ''}</p>`}
+    <div class="row">
+      <button class="btn sec small" id="cSet">⚙️ Ustawienia</button>
+      ${c.clientId ? `<button class="btn small" id="cCon">🔗 ${c.email ? 'Zmień konto' : 'Połącz z Dyskiem Google'}</button>` : ''}
+      ${c.email ? `<button class="btn sec small" id="cNow">☁️ Zapisz kopię teraz</button><button class="btn sec small" id="cRes">⬇️ Przywróć z chmury</button><a href="#" id="cOld" style="font-size:.85rem;align-self:center">starsze kopie…</a>` : ''}
+    </div>`;
+  $('cSet').onclick = cloudSettings;
+  if ($('cCon')) $('cCon').onclick = cloudConnect;
+  if ($('cNow')) $('cNow').onclick = async () => { try { if (!tokOk(cfg())) await reqToken(''); cNeedToken = false; await cloudPush(); } catch(e) { cErr = e.message; cloudCard(); } };
+  if ($('cRes')) $('cRes').onclick = () => cloudRestore(false);
+  if ($('cOld')) $('cOld').onclick = e => { e.preventDefault(); cloudRestore(true); };
+}
+// wygasłe połączenie odnawiane przy najbliższym kliknięciu
+document.addEventListener('click', e => {
+  if (!cNeedToken || !cfg().email || e.target.closest('form')) return;
+  cNeedToken = false; reqToken('').then(cloudPush).catch(err => { cErr = err.message; cloudCard(); });
+}, true);
+window.addEventListener('storage', e => { if (e.key === KEY) render(); if (e.key === CKEY) cloudCard(); });
+(() => { // start: wczytaj logowanie Google; jeśli były niezapisane zmiany – wyślij
+  const c = cfg(); cloudCard(); if (!c.clientId) return;
+  loadGIS().then(tc).catch(() => { cErr = 'brak połączenia z Google'; cloudCard(); });
+  if (c.email) cloudSchedule(); // przy otwarciu: połącz z chmurą (dociągnij kursantów z innych komputerów) i wyślij
+})();
+let lastFocusSync = 0;
+window.addEventListener('focus', () => { const c = cfg(); if (c.email && tokOk(c) && Date.now() - lastFocusSync > 120000) { lastFocusSync = Date.now(); cloudSchedule(); } });
 
 // ---------- Eksport / kopia ----------
 function download(name, content, type) {
@@ -346,7 +527,7 @@ $('xlsFile').onchange = async e => {
     let added = 0, dup = 0;
     out.forEach((r, i) => {
       if (r.pkk && have.has(r.pkk)) { dup++; return; }
-      d.push({ id: Date.now().toString(36) + i, ...r }); if (r.pkk) have.add(r.pkk); added++;
+      d.push({ id: newId() + i, ...r }); if (r.pkk) have.add(r.pkk); added++;
     });
     store(d); render();
     let msg = `✅ Zaimportowano ${added} kursantów z pliku „${f.name}”.`;
