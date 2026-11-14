@@ -132,7 +132,7 @@ let editId = null;
 
 // ---------- Rejestr ----------
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch(e) { return []; } };
-const store = d => localStorage.setItem(KEY, JSON.stringify(d));
+const store = d => { localStorage.setItem(KEY, JSON.stringify(d)); cloudSchedule(); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtPkk = p => (p||'').replace(/\D/g,'').replace(/(\d{5})(?=\d)/g,'$1 ');
 const fmtDate = d => d ? d.split('-').reverse().join('.') : '';
@@ -199,6 +199,55 @@ window.printOne = id => {
 };
 window.del = id => { if (confirm('Usunąć ten wpis?')) { store(load().filter(x => x.id !== id)); render(); } };
 $('search').oninput = render;
+
+// ---------- Kopia w chmurze (wspólna z programem „Grafik pracy instruktorów”) ----------
+// Ustawienia i połączenie z Dyskiem Google konfiguruje się w grafiku; rejestr korzysta z nich,
+// bo oba programy są pod tym samym adresem (automax-osk.github.io). Kopia zawiera grafik i rejestr razem.
+const CKEY = 'automax_cloud_v1', GKEY = 'automax_grafik_v1', CUR_FILE = 'grafik-automax-biezacy.json';
+let cloudT = null;
+function cloudCfg() { try { return JSON.parse(localStorage.getItem(CKEY)) || null; } catch(e) { return null; } }
+function cloudNote(txt, warn) {
+  let el = $('cloudNote');
+  if (!el) { el = document.createElement('div'); el.id = 'cloudNote'; el.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:40;font-size:.8rem;padding:6px 12px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.2)'; document.body.appendChild(el); }
+  el.textContent = txt; el.style.background = warn ? '#ffcc80' : '#1565c0'; el.style.color = warn ? '#5d3a00' : '#fff'; el.hidden = !txt;
+}
+function cloudStatus() {
+  const c = cloudCfg();
+  if (!c || !c.clientId || !c.email) return cloudNote('');
+  const t = c.lastSave ? new Date(c.lastSave).toLocaleString('pl-PL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+  cloudNote('☁️ kopia w chmurze: ' + t);
+}
+function cloudSchedule() { const c = cloudCfg(); if (!c || !c.email || !c.auto) return; clearTimeout(cloudT); cloudT = setTimeout(cloudPush, 3000); }
+async function cloudPush() {
+  const c = cloudCfg(); if (!c || !c.email || !c.auto) return;
+  if (!c.token || Date.now() > (c.tokenExp || 0) - 60000 || !c.folderId) {
+    return cloudNote('☁️ zmiany zapiszą się w chmurze po otwarciu grafiku', true);
+  }
+  let grafik = null; try { grafik = JSON.parse(localStorage.getItem(GKEY)); } catch(e) {}
+  if (!grafik) return cloudNote('☁️ otwórz grafik, żeby zapisać kopię w chmurze', true);
+  const H = { Authorization:'Bearer ' + c.token };
+  const body = JSON.stringify({ v:2, app:'automax', savedAt:new Date().toISOString(), grafik, pkk:load() });
+  try {
+    cloudNote('☁️ zapisywanie…');
+    const q = `name='${CUR_FILE}' and '${c.folderId}' in parents and trashed=false`;
+    const lr = await fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)', { headers:H });
+    if (!lr.ok) throw new Error(lr.status);
+    const f = ((await lr.json()).files || [])[0];
+    const b = 'automax' + Date.now().toString(36), meta = { appProperties:{ device:c.device || 'komputer', savedAt:new Date().toISOString() } };
+    const mp = m => `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(m)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+    const up = f
+      ? await fetch(`https://www.googleapis.com/upload/drive/v3/files/${f.id}?uploadType=multipart&fields=id,modifiedTime`, { method:'PATCH', headers:{ ...H, 'Content-Type':'multipart/related; boundary=' + b }, body:mp(meta) })
+      : await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', { method:'POST', headers:{ ...H, 'Content-Type':'multipart/related; boundary=' + b }, body:mp({ ...meta, name:CUR_FILE, parents:[c.folderId], mimeType:'application/json' }) });
+    if (!up.ok) throw new Error(up.status);
+    const j = await up.json(), c2 = cloudCfg() || c;
+    c2.lastSave = new Date().toISOString(); c2.lastSync = j.modifiedTime || c2.lastSave; c2.lastErr = '';
+    localStorage.setItem(CKEY, JSON.stringify(c2));
+    cloudStatus();
+  } catch(e) { cloudNote('☁️ nie udało się zapisać w chmurze – zapisze się po otwarciu grafiku', true); }
+}
+// gdy grafik pobierze dane z chmury (w innym oknie), odśwież listę
+window.addEventListener('storage', e => { if (e.key === KEY) render(); if (e.key === CKEY) cloudStatus(); });
+cloudStatus();
 
 // ---------- Eksport / kopia ----------
 function download(name, content, type) {
