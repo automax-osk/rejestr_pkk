@@ -1,0 +1,16 @@
+{
+ "id": "rejestr-pkk",
+ "name": "Rejestr PKK – Auto-MAX",
+ "short_name": "Rejestr PKK",
+ "description": "Rejestr kursantów OSK Auto-MAX",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "background_color": "#ffffff",
+ "theme_color": "#1565c0",
+ "lang": "pl",
+ "icons": [
+  { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+  { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+ ]
+}
