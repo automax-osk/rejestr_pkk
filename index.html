@@ -64,6 +64,13 @@
   .pa td:first-child { width:35%; background:#f2f2f2; font-weight:600; }
   .pa .sign { display:flex; justify-content:space-between; margin-top:60px; font-size:10pt; }
   .pa .sign div { width:42%; border-top:1px solid #000; text-align:center; padding-top:4px; }
+  #extraPkk { display:none; margin-top:8px; background:#fff8e1; border:1px solid #ffe08a; border-radius:10px; padding:8px 10px; }
+  #extraPkk .xrow { display:grid; grid-template-columns:1fr 58px; gap:4px 6px; align-items:center; margin-top:6px; }
+  #extraPkk .xrow .xchk { grid-column:1 / -1; }
+  #extraPkk .xchk { display:flex; align-items:center; gap:4px; margin:0; font-size:.85rem; white-space:nowrap; color:var(--txt); }
+  #extraPkk .xchk input { width:auto; }
+  #extraPkk .xpkk { min-width:0; font-family:monospace; font-size:.92rem; padding-left:8px; padding-right:4px; }
+  #extraPkk .xcat { width:58px; text-align:center; }
   .ver { text-align:center; color:var(--mut); font-size:.82rem; padding:8px 12px 26px; }
   .ver summary { cursor:pointer; list-style:none; display:inline-block; padding:4px 10px; border-radius:8px; }
   .ver summary::-webkit-details-marker { display:none; }
@@ -101,7 +108,7 @@
       <div class="full"><label>Imię i nazwisko</label><input id="f_name"></div>
       <div><label>Telefon</label><input id="f_phone" inputmode="tel"></div>
       <div><label>E-mail</label><input id="f_email" inputmode="email"></div>
-      <div class="full"><label>Numer PKK (20 cyfr)</label><div class="row" style="flex-wrap:nowrap;align-items:center"><input id="f_pkk" inputmode="numeric"><button class="btn sec" id="btnScan" type="button" style="padding:10px 12px;white-space:nowrap" title="Skanuj kod kreskowy">▥ Skanuj</button></div></div>
+      <div class="full"><label>Numer PKK (20 cyfr)</label><div class="row" style="flex-wrap:nowrap;align-items:center"><input id="f_pkk" inputmode="numeric"><button class="btn sec" id="btnScan" type="button" style="padding:10px 12px;white-space:nowrap" title="Skanuj kod kreskowy">▥ Skanuj</button></div><div id="extraPkk"></div></div>
       <div><label>Kategoria szkolenia</label><input id="f_cat"></div>
       <div><label>Rodzaj kursu</label><select id="f_kurs"><option>Podstawowy</option><option>Uzupełniający</option></select></div>
       <div><label>Posiadane kategorie</label><input id="f_has" placeholder="np. AM, B, B1"></div>
@@ -135,7 +142,7 @@
 
 </main>
 <footer style="text-align:center;color:var(--mut);font-size:.85rem;padding:6px 12px 24px">Program przygotował: <svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:-4px"><circle cx="12" cy="12" r="12" fill="#1877f2"/><path d="M13.4 19.5v-6h2l.3-2.4h-2.3V9.6c0-.7.2-1.2 1.2-1.2h1.2V6.3c-.2 0-1-.1-1.8-.1-1.8 0-3 1.1-3 3.1v1.8H9v2.4h2v6z" fill="#fff"/></svg> <b>Benek Benek</b></footer>
-<details class="ver"><summary>Rejestr PKK · <b>wersja 1.2</b> · co nowego?</summary><div class="chg"><h4>1.2 – 17.11.2026</h4><ul><li>Numer wersji i lista zmian na dole programu.</li></ul><h4>1.1 – 16.11.2026</h4><ul><li>Ikona i nazwa „Rejestr PKK” po dodaniu do ekranu telefonu.</li></ul><h4>1.0 – 14.11.2026</h4><ul><li>Pierwsza wersja: skanowanie profilu PKK, karta kursanta, CSV i Excel, kopia na Dysku Google.</li></ul></div></details>
+<details class="ver"><summary>Rejestr PKK · <b>wersja 1.3</b> · co nowego?</summary><div class="chg"><h4>1.3 – 18.11.2026</h4><ul><li>Dokładniejsze odczytywanie zdjęcia profilu PKK: imię i nazwisko, telefon, e-mail, numer PKK i kategoria (wyrównanie oświetlenia, dwa przebiegi rozpoznawania, osobne odczytanie kategorii).</li><li>Dwa numery PKK na jednej kartce (np. C i CE) – zapisują się jako dwa osobne wpisy tej samej osoby.</li></ul><h4>1.2 – 17.11.2026</h4><ul><li>Numer wersji i lista zmian na dole programu.</li></ul><h4>1.1 – 16.11.2026</h4><ul><li>Ikona i nazwa „Rejestr PKK” po dodaniu do ekranu telefonu.</li></ul><h4>1.0 – 14.11.2026</h4><ul><li>Pierwsza wersja: skanowanie profilu PKK, karta kursanta, CSV i Excel, kopia na Dysku Google.</li></ul></div></details>
 <div id="printArea" class="pa"></div>
 <div id="scanBox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99;flex-direction:column;align-items:center;justify-content:center;padding:16px">
   <div style="position:relative;width:100%;max-width:520px">
@@ -194,6 +201,7 @@ function clearForm() {
   $('f_date').value = new Date().toISOString().slice(0,10);
   $('f_kurs').value = 'Podstawowy';
   editId = null; $('btnSave').textContent = '💾 Zapisz w rejestrze';
+  scanExtra = []; showExtra();
 }
 
 $('btnSave').onclick = () => {
@@ -206,8 +214,15 @@ $('btnSave').onclick = () => {
   if (!editId && r.pkk && d.some(x => x.pkk === r.pkk) && !confirm('Ten numer PKK jest już w rejestrze. Dodać ponownie?')) return;
   if (editId) { const i = d.findIndex(x => x.id === editId); d[i] = { ...d[i], ...r }; }
   else d.push({ id: newId(), ...r });
+  let extra = 0, skip = 0;
+  if (!editId) scanExtra.filter(x => x.on).forEach(x => {
+    const pk = (x.pkk || '').replace(/\D/g, '');
+    if (pk.length !== 20 || pk === r.pkk || d.some(y => y.pkk === pk)) { skip++; return; }
+    d.push({ id: newId(), ...r, pkk: pk, cat: (x.cat || '').toUpperCase() }); extra++;
+  });
   store(d); clearForm(); render();
-  $('preview').style.display = 'none'; $('status').textContent = '✅ Zapisano. Możesz zrobić zdjęcie kolejnego profilu.';
+  $('preview').style.display = 'none';
+  $('status').textContent = `✅ Zapisano${extra ? ` ${extra + 1} wpisy (osobno dla każdego numeru PKK)` : ''}.${skip ? ` Pominięto ${skip} (zły numer albo już jest w rejestrze).` : ''} Możesz zrobić zdjęcie kolejnego profilu.`;
 };
 $('btnClear').onclick = clearForm;
 window.edit = id => {
@@ -561,70 +576,180 @@ $('xlsFile').onchange = async e => {
 
 // ---------- Rozpoznawanie ze zdjęcia ----------
 const CATS = ['C1+E','D1+E','C1E','D1E','B+E','C+E','D+E','AM','A1','A2','B1','BE','C1','CE','D1','DE','A','B','C','D','T'];
+const MAIL_DOM = 'wp\\.pl|o2\\.pl|onet\\.pl|onet\\.eu|op\\.pl|poczta\\.onet\\.pl|vp\\.pl|interia\\.pl|interia\\.eu|poczta\\.fm|tlen\\.pl|go2\\.pl|gazeta\\.pl|int\\.pl|buziaczek\\.pl|autograf\\.pl|spoko\\.pl|gmail\\.com|googlemail\\.com|outlook\\.com|outlook\\.pl|hotmail\\.com|live\\.com|icloud\\.com|me\\.com|yahoo\\.com|proton\\.me|protonmail\\.com';
 
-function parse(text) {
-  const out = {};
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const flat = text.replace(/\s+/g,' ');
+function findCat(s) {
+  const t = String(s).toUpperCase().replace(/\s*\+\s*/g, '+');
+  for (const c of CATS) if (new RegExp('(^|[^A-Z0-9+])' + c.replace('+', '\\+') + '(?=$|[^A-Z0-9+])').test(t)) return c.replace('+', '');
+}
+/* numery PKK z jednej linii (20 cyfr, zwykle 4 grupy po 5) + kategoria zaraz za numerem */
+function pkkFromLine(line) {
+  const fixed = line.replace(/(?<=\d)[Oo]|[Oo](?=\d)/g, '0').replace(/(?<=\d)[Il|](?=\d)/g, '1');
+  const out = [], re = /(\d{5})[ .,]{0,2}(\d{5})[ .,]{0,2}(\d{5})[ .,]{0,2}(\d{5})(?!\d)/g; let m;
+  while ((m = re.exec(fixed))) out.push({ pkk:m.slice(1, 5).join(''), cat:findCat(fixed.slice(m.index + m[0].length, m.index + m[0].length + 14)) || '' });
+  if (out.length) return out;
+  for (const s of fixed.match(/\d[\d ]{18,34}\d/g) || []) { const d = s.replace(/\D/g, ''); if (d.length === 20) { const i = fixed.indexOf(s) + s.length; out.push({ pkk:d, cat:findCat(fixed.slice(i, i + 14)) || '' }); } }
+  return out;
+}
+const titleCase = s => s.toLowerCase().replace(/(^|[\s\-])\S/g, x => x.toUpperCase());
+const diffDigits = (a, b) => [...a].filter((ch, i) => ch !== b[i]).length;
 
-  // Imię i nazwisko
-  let m = flat.match(/Nazwisko\s*[:;.]?\s*([A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż\-]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż\-]+){1,3})/);
-  if (m) out.name = m[1].replace(/\s+(Telefon|Tel|Email|E-mail).*$/i,'').trim()
-          .toLowerCase().replace(/(^|[\s\-])\S/g, s => s.toUpperCase());
-
-  // Telefon
-  m = flat.match(/Tel[a-z]*\s*[:;.]?\s*((?:\+?48)?[\s\-]?\d[\d\s\-]{7,12}\d)/i);
-  if (m) { const d = m[1].replace(/\D/g,'').replace(/^48(?=\d{9}$)/,''); if (d.length === 9) out.phone = d.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3'); }
-
-  // E-mail
-  m = flat.match(/[A-Za-z0-9._%+\-]+\s?[@©®]\s?[A-Za-z0-9\-]+(?:\s?\.\s?[A-Za-z]{2,})+/);
-  if (m) out.email = m[0].replace(/\s/g,'').replace(/[©®]/,'@').toLowerCase();
-
-  // Numer PKK – 20 cyfr (zwykle w grupach po 5)
-  m = flat.match(/(\d{5})\s?(\d{5})\s?(\d{5})\s?(\d{5})(?!\d)/);
-  if (m) out.pkk = m.slice(1).join('');
-  else { const digits = flat.replace(/[OoD]/g, c => c==='D'?c:'0').match(/\d[\d ]{18,30}\d/g) || [];
-         const hit = digits.map(s => s.replace(/\D/g,'')).find(s => s.length === 20); if (hit) out.pkk = hit; }
-
-  // Kategoria – w linii z numerem PKK, po numerze
-  const pkkLine = lines.find(l => /\d{5}\s?\d{5}\s?\d{5}\s?\d{5}/.test(l));
-  const findCat = s => { const t = s.toUpperCase().replace(/\s*\+\s*/g,'+');
-    for (const c of CATS) if (new RegExp('(^|[^A-Z0-9+])' + c.replace('+','\\+') + '(?=$|[^A-Z0-9+])').test(t)) return c.replace('+',''); };
-  if (pkkLine) out.cat = findCat(pkkLine.replace(/[\d\s]{20,}/,' '));
-  if (!out.cat) { const i = lines.findIndex(l => /Kategoria/i.test(l));
-    if (i >= 0) for (const l of lines.slice(i, i+4)) { const c = findCat(l.replace(/Kategoria|Kod|Numer|PKK/gi,' ').replace(/[\d\s]{20,}/,' ')); if (c) { out.cat = c; break; } } }
+/* texts: wyniki kilku przebiegów OCR – pole bierzemy z pierwszego, który je odczytał; numery PKK łączymy */
+function parse(texts) {
+  if (!Array.isArray(texts)) texts = [texts];
+  const out = {}, pk = [];
+  for (const text of texts) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean), flat = text.replace(/\s+/g, ' ');
+    if (!out.name) {   // wielkie litery po „Nazwisko:”
+      const m = flat.match(/Nazwisk[oa0]\s*[:;.,]?\s*((?:[A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż\-]{1,}\s*){2,4})/);
+      if (m) {
+        const all = m[1].trim().split(/\s+/), stop = all.findIndex(x => /^(TELEFON|TEL|EMAIL|E-MAIL|NUMER|PKK|KATEGORIA)/i.test(x));
+        const cand = (stop >= 0 ? all.slice(0, stop) : all).filter(x => !/^(imię|imie|i|nazwisko)$/i.test(x));
+        // na wydruku PKK imię i nazwisko są WIELKIMI literami – drobne „śmieci” z OCR odpadają
+        let w = cand.filter(x => (x.match(/[A-ZĄĆĘŁŃÓŚŹŻ]/g) || []).length >= 2 && /^[A-ZĄĆĘŁŃÓŚŹŻ\-]+$/.test(x));
+        if (w.length < 2) w = cand.filter(x => /^[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż\-]{2,}$/.test(x) || /^[A-ZĄĆĘŁŃÓŚŹŻ\-]{2,}$/.test(x));
+        const nm = w.slice(0, 4);
+        if (nm.length >= 2) out.name = titleCase(nm.join(' '));
+      }
+    }
+    if (!out.phone) {  // po „Telefon:”, a jak brak – samodzielny numer 9-cyfrowy
+      let m = flat.match(/Tel[a-z0-9]*\s*[:;.]?\s*((?:\+?48)?[\s\-]?\d[\d\s\-]{7,12}\d)/i), d = m && m[1].replace(/\D/g, '').replace(/^48(?=\d{9}$)/, '');
+      if (!d || d.length !== 9) { const c = flat.match(/(?<![\d ])(?:\+?48[\s\-]?)?([4-8]\d{2}[\s\-]?\d{3}[\s\-]?\d{3})(?!\d)/); d = c && c[1].replace(/\D/g, ''); }
+      if (d && d.length === 9) out.phone = d.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+    }
+    if (!out.email) {  // „@” bywa czytane jako Q, G, ©, 0, 9 – pomagają znane domeny
+      let m = flat.match(/([A-Za-z0-9._%+\-]+)\s?[@©®]\s?([A-Za-z0-9\-]+(?:\s?\.\s?[A-Za-z]{2,})+)/);
+      if (m) out.email = (m[1].replace(/(?<=..)[qQ]$/, '') + '@' + m[2]).replace(/\s/g, '');   // „Q@” = podwójnie odczytane @
+      else {
+        m = flat.match(new RegExp('E[\\-\\s]?mail\\s*[:;.]?\\s*([A-Za-z0-9._%+\\-]+?)[@QGq©®09o]?(' + MAIL_DOM + ')(?![A-Za-z])', 'i'))
+         || flat.match(new RegExp('([A-Za-z0-9._%+\\-]{3,}?)[@QGq©®09]\\s?(' + MAIL_DOM + ')(?![A-Za-z])', 'i'));
+        if (m) out.email = m[1] + '@' + m[2];
+      }
+      if (out.email) out.email = out.email.toLowerCase().replace(/[,.]+$/, '');
+    }
+    lines.forEach(l => pkkFromLine(l).forEach(p => pk.push(p)));
+  }
+  // ten sam numer z kilku przebiegów (albo różniący się 1–2 cyframi przez błąd OCR) liczymy raz
+  // przy różnicach wygrywa wersja odczytana najwięcej razy
+  const uniq = [];
+  for (const p of pk) {
+    const same = uniq.find(u => diffDigits(u.pkk, p.pkk) <= 2);
+    if (!same) uniq.push({ pkk:p.pkk, cat:p.cat, v:{ [p.pkk]:1 } });
+    else { same.v[p.pkk] = (same.v[p.pkk] || 0) + 1; if (!same.cat && p.cat) same.cat = p.cat; }
+  }
+  uniq.forEach(u => { u.pkk = Object.keys(u.v).reduce((a, b) => u.v[b] > u.v[a] ? b : a); delete u.v; });
+  out.pkks = uniq;
   return out;
 }
 
+/* linie tekstu z położenia słów – słowa na tej samej wysokości łączymy od lewej do prawej */
+function wordRows(words) {
+  const ws = words.filter(w => w.text && w.text.trim() && w.bbox).map(w => ({ t:w.text.trim(), b:w.bbox, y:(w.bbox.y0 + w.bbox.y1) / 2, h:w.bbox.y1 - w.bbox.y0 })).sort((a, b) => a.y - b.y);
+  const rows = [];
+  for (const w of ws) {
+    // porównujemy z najbliższym (w poziomie) słowem wiersza – działa też przy lekko przekrzywionym zdjęciu
+    const near = r => r.w.reduce((best, v) => Math.abs((v.b.x0 + v.b.x1) / 2 - (w.b.x0 + w.b.x1) / 2) < Math.abs((best.b.x0 + best.b.x1) / 2 - (w.b.x0 + w.b.x1) / 2) ? v : best);
+    const r = rows.find(r => { const v = near(r), dx = Math.abs((v.b.x0 + v.b.x1) / 2 - (w.b.x0 + w.b.x1) / 2); return Math.abs(v.y - w.y) < Math.max(8, Math.min(v.h, w.h) * 0.6 + dx * 0.05) && dx < w.h * 14; });
+    if (r) { r.w.push(w); r.y = (r.y * (r.w.length - 1) + w.y) / r.w.length; r.h = Math.max(r.h, w.h); } else rows.push({ y:w.y, h:w.h, w:[w] });
+  }
+  rows.sort((a, b) => a.y - b.y).forEach(r => { r.w.sort((a, b) => a.b.x0 - b.b.x0); r.text = r.w.map(w => w.t).join(' '); });
+  return rows;
+}
+function allWords(data) {
+  if (data.words && data.words.length) return data.words;
+  const out = []; (data.blocks || []).forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(l => (l.words || []).forEach(w => out.push(w)))));
+  return out;
+}
+/* prostokąt kolumny „Kategoria” obok danego numeru PKK */
+function catBox(rows, pkk, W, H) {
+  // szukamy słowa z ostatnią grupą 5 cyfr numeru (i pierwszą – dla szerokości); kategoria jest zaraz na prawo
+  const g = [0, 5, 10, 15].map(i => pkk.slice(i, i + 5));
+  const ws = rows.flatMap(r => r.w).map(w => ({ ...w, d:w.t.replace(/[Oo]/g, '0').replace(/\D/g, '') }));
+  // numery na kartce różnią się czasem 1 cyfrą w grupie – dlatego sprawdzamy też sąsiednią grupę w tym samym wierszu
+  const near = (w, grp) => ws.some(v => v !== w && v.b.x1 <= w.b.x0 + 5 && Math.abs(v.y - w.y) < w.h && diffDigits(v.d.slice(-5), grp) <= 1);
+  const cands = ws.filter(w => (w.d.length === 5 && diffDigits(w.d, g[3]) <= 1) || (w.d.length > 5 && w.d.endsWith(g[3])))
+    .map(w => ({ w, sc:diffDigits(w.d.slice(-5), g[3]) + (near(w, g[2]) ? 0 : 2) })).sort((a, b) => a.sc - b.sc);
+  const last = cands.length && cands[0].w;
+  if (!last) return null;
+  const first = ws.find(w => w.d.length >= 5 && diffDigits(w.d.slice(0, 5), g[0]) <= 1 && Math.abs(w.y - last.y) < last.h * 3 && w.b.x0 < last.b.x0);
+  const x1 = last.b.x1, span = first ? x1 - first.b.x0 : (last.b.x1 - last.b.x0) * 4.6, h = last.b.y1 - last.b.y0;
+  const L = Math.min(W - 1, x1 + h * 0.5), R = Math.min(W, x1 + span * 0.42), T = Math.max(0, last.b.y0 - h * 0.6), B = Math.min(H, last.b.y1 + h * 0.6);
+  return R - L > 10 ? { left:Math.round(L), top:Math.round(T), width:Math.round(R - L), height:Math.round(B - T) } : null;
+}
+
+/* prostowanie lekko przekrzywionego zdjęcia: kąt, przy którym wiersze tekstu dają najwyraźniejsze „paski” */
+function deskew(c) {
+  // liczymy na środkowej części zdjęcia (bez brzegów stołu i segregatorów), najpierw co 0,5°, potem dokładniej
+  const k = Math.min(1, 700 / Math.max(c.width, c.height)), w = Math.round(c.width * k), h = Math.round(c.height * k);
+  const t = document.createElement('canvas'); t.width = w; t.height = h; const tx = t.getContext('2d', { willReadFrequently:true });
+  const X0 = Math.round(w * 0.12), X1 = Math.round(w * 0.88), Y0 = Math.round(h * 0.15), Y1 = Math.round(h * 0.85);
+  const score = a => {
+    tx.setTransform(1, 0, 0, 1, 0, 0); tx.fillStyle = '#fff'; tx.fillRect(0, 0, w, h);
+    tx.translate(w / 2, h / 2); tx.rotate(a * Math.PI / 180); tx.drawImage(c, -w / 2, -h / 2, w, h);
+    const p = tx.getImageData(0, 0, w, h).data; let sc = 0, prev = 0;
+    for (let y = Y0; y < Y1; y++) { let n = 0; for (let x = X0; x < X1; x++) if (p[(y * w + x) * 4] < 140) n++; if (y > Y0) sc += (n - prev) * (n - prev); prev = n; }
+    return sc;
+  };
+  let best = 0, bestScore = -1;
+  for (let a = -8; a <= 8; a += 0.5) { const sc = score(a); if (sc > bestScore) { bestScore = sc; best = a; } }
+  for (let a = best - 0.4; a <= best + 0.41; a += 0.2) { const sc = score(a); if (sc > bestScore) { bestScore = sc; best = a; } }
+  if (Math.abs(best) < 0.5) return c;
+  const o = document.createElement('canvas'); o.width = c.width; o.height = c.height; const ox = o.getContext('2d');
+  ox.fillStyle = '#fff'; ox.fillRect(0, 0, o.width, o.height); ox.translate(o.width / 2, o.height / 2); ox.rotate(best * Math.PI / 180);
+  ox.imageSmoothingQuality = 'high'; ox.drawImage(c, -c.width / 2, -c.height / 2);
+  return o;
+}
+/* zdjęcie → czarny tekst na białym tle: wyrównanie oświetlenia (odbicia, cienie), czerwone dopiski i pieczątki jaśnieją */
 function prepareImage(file) {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => {
       const max = 2200, s = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-      const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
-      const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
-      for (let i = 0; i < p.length; i += 4) {           // szarość + kontrast
-        let g = 0.299*p[i] + 0.587*p[i+1] + 0.114*p[i+2];
-        g = Math.max(0, Math.min(255, (g - 128) * 1.6 + 150));
-        p[i] = p[i+1] = p[i+2] = g;
-      }
+      const w = Math.round(img.width * s), h = Math.round(img.height * s);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d', { willReadFrequently:true }); x.drawImage(img, 0, 0, w, h);
+      const d = x.getImageData(0, 0, w, h), p = d.data;
+      for (let i = 0; i < p.length; i += 4) p[i] = p[i+1] = p[i+2] = Math.max(p[i], p[i+1], p[i+2]);
       x.putImageData(d, 0, 0);
-      res({ canvas: c, img });
+      // tło = mocno pomniejszony i z powrotem powiększony obraz
+      const sw = Math.max(1, Math.round(w / 16)), sh = Math.max(1, Math.round(h / 16));
+      const sm = document.createElement('canvas'); sm.width = sw; sm.height = sh;
+      const sx = sm.getContext('2d'); sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high'; sx.drawImage(c, 0, 0, sw, sh);
+      const bg = document.createElement('canvas'); bg.width = w; bg.height = h;
+      const bx = bg.getContext('2d', { willReadFrequently:true }); bx.imageSmoothingEnabled = true; bx.imageSmoothingQuality = 'high'; bx.drawImage(sm, 0, 0, w, h);
+      const b = bx.getImageData(0, 0, w, h).data;
+      for (let i = 0; i < p.length; i += 4) { const g = Math.max(0, Math.min(255, p[i] / (b[i] + 1) * 235)); p[i] = p[i+1] = p[i+2] = g; }
+      x.putImageData(d, 0, 0);
+      res({ canvas:deskew(c), img });
     };
     img.onerror = rej; img.src = URL.createObjectURL(file);
   });
 }
 
-async function readBarcode(img) {
-  if (!('BarcodeDetector' in window)) return null;
+async function readBarcodes(img) {
+  if (!('BarcodeDetector' in window)) return [];
   try {
     const det = new BarcodeDetector({ formats: ['code_128','code_39','itf','ean_13','pdf417','qr_code','data_matrix'] });
-    const codes = await det.detect(img);
-    for (const c of codes) { const d = (c.rawValue||'').replace(/\D/g,''); if (d.length === 20) return d; }
-  } catch(_) {}
-  return null;
+    const codes = await det.detect(img), out = [];
+    codes.sort((a, b) => (a.boundingBox?.y || 0) - (b.boundingBox?.y || 0))
+      .forEach(c => { const d = (c.rawValue || '').replace(/\D/g, ''); if (d.length === 20 && !out.includes(d)) out.push(d); });
+    return out;
+  } catch(_) { return []; }
+}
+
+/* dodatkowe numery PKK z tej samej kartki (np. C i CE) – każdy może trafić do rejestru jako osobny wpis */
+var scanExtra = [];
+function showExtra() {
+  const box = $('extraPkk');
+  if (!scanExtra.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = `<b>📄 Na kartce ${scanExtra.length === 1 ? 'jest drugi numer PKK' : 'są kolejne numery PKK'}</b>
+    <div style="font-size:.85rem;color:var(--mut);margin:2px 0 6px">Zaznaczone zapiszą się jako osobne wpisy tej samej osoby (te same dane, inny numer i kategoria).</div>
+    ${scanExtra.map((e, i) => `<div class="xrow"><label class="xchk"><input type="checkbox" data-xi="${i}" ${e.on ? 'checked' : ''}> dodaj jako osobny wpis</label>
+      <input class="xpkk" data-xi="${i}" value="${esc(fmtPkk(e.pkk))}" inputmode="numeric"><input class="xcat" data-xi="${i}" value="${esc(e.cat)}" placeholder="kat."></div>`).join('')}`;
+  box.querySelectorAll('input[type=checkbox]').forEach(el => el.onchange = () => scanExtra[el.dataset.xi].on = el.checked);
+  box.querySelectorAll('.xpkk').forEach(el => el.oninput = () => scanExtra[el.dataset.xi].pkk = el.value.replace(/\D/g, ''));
+  box.querySelectorAll('.xcat').forEach(el => el.oninput = () => scanExtra[el.dataset.xi].cat = el.value.trim().toUpperCase().replace(/\+/g, ''));
 }
 
 let worker = null;
@@ -635,29 +760,56 @@ $('file').onchange = async e => {
   $('preview').src = URL.createObjectURL(file); $('preview').style.display = 'block';
   const bar = $('bar'), fill = bar.firstElementChild; bar.style.display = 'block'; fill.style.width = '0';
   const st = t => $('status').textContent = t;
+  let stage = '', base = 0, span = 1;
   try {
     st('Przygotowuję zdjęcie…');
     const { canvas, img } = await prepareImage(file);
-    const barcode = await readBarcode(img);
+    const barcodes = await readBarcodes(img);
     if (!worker) {
       st('Ładuję moduł rozpoznawania tekstu (pierwszy raz może potrwać ~20 s)…');
-      worker = await Tesseract.createWorker('pol', 1, { logger: m => { if (m.status === 'recognizing text') { fill.style.width = (m.progress*100) + '%'; st('Rozpoznaję tekst… ' + Math.round(m.progress*100) + '%'); } } });
+      worker = await Tesseract.createWorker('pol', 1, { logger: m => { if (m.status === 'recognizing text') { fill.style.width = ((base + m.progress * span) * 100) + '%'; st(stage + ' ' + Math.round((base + m.progress * span) * 100) + '%'); } } });
     }
-    st('Rozpoznaję tekst…');
-    const { data } = await worker.recognize(canvas);
-    $('raw').textContent = data.text;
-    const r = parse(data.text);
-    if (barcode) r.pkk = barcode;
+    // dwa przebiegi: układ strony + „rozproszony tekst” – razem łapią więcej pól
+    const runs = [], texts = [], allRows = [];
+    for (const [i, psm] of [['1', '3'], ['2', '11']]) {
+      stage = `Rozpoznaję tekst (${i}/2)…`; base = (i - 1) * 0.45; span = 0.45;
+      await worker.setParameters({ tessedit_pageseg_mode:psm, tessedit_char_whitelist:'' });
+      const { data } = await worker.recognize(canvas, {}, { text:true, blocks:true });
+      const rows = wordRows(allWords(data));
+      texts.push(rows.length ? rows.map(r => r.text).join('\n') : data.text); allRows.push(...rows); runs.push(data.text);
+    }
+    $('raw').textContent = texts.join('\n\n— — — drugi przebieg — — —\n\n');
+    const r = parse(texts.concat(runs));
+    const yOf = pkk => { for (const row of allRows) { const d = row.text.replace(/[Oo]/g, '0').replace(/\D/g, ''); if (d.length >= 17 && [...Array(Math.max(1, d.length - 19)).keys()].some(i => diffDigits(d.slice(i, i + 20), pkk) <= 3)) return row.y; } const g = allRows.find(row => row.text.replace(/\s/g, '').includes(pkk.slice(0, 10)) || row.text.replace(/\s/g, '').includes(pkk.slice(10))); return g ? g.y : 1e9; };
+    r.pkks.sort((a, b) => yOf(a.pkk) - yOf(b.pkk));
+    // kody kreskowe (Android/Chrome) są pewniejsze od OCR – poprawiają albo uzupełniają numery
+    barcodes.forEach((bc, i) => { const hit = r.pkks.find(p => diffDigits(p.pkk, bc) <= 4); if (hit) hit.pkk = bc; else r.pkks.splice(Math.min(i, r.pkks.length), 0, { pkk:bc, cat:'' }); });
+    // kategoria: osobne, dokładne odczytanie małego pola obok każdego numeru
+    stage = 'Sprawdzam kategorie…'; base = 0.9; span = 0.1;
+    await worker.setParameters({ tessedit_pageseg_mode:'7', tessedit_char_whitelist:'ABCDEMT1+' });
+    for (const p of r.pkks) {
+      const box = catBox(allRows, p.pkk, canvas.width, canvas.height); if (!box) continue;
+      for (const H of [60, 40, 80]) {   // duże litery czyta gorzej – pole zmniejszamy do kilku wielkości
+        const cc = document.createElement('canvas'), k = H / box.height; cc.width = Math.max(1, Math.round(box.width * k)); cc.height = H;
+        const cx = cc.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cc.width, H); cx.imageSmoothingQuality = 'high';
+        cx.drawImage(canvas, box.left, box.top, box.width, box.height, 0, 0, cc.width, H);
+        try { const { data } = await worker.recognize(cc); const c = findCat(data.text.replace(/^\++/, '')); if (c) { p.cat = c; break; } } catch(_) {}
+      }
+    }
+    await worker.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
     if (!editId) clearForm();
-    const map = { name:r.name, phone:r.phone, email:r.email, pkk: r.pkk ? fmtPkk(r.pkk) : '', cat:r.cat };
+    const first = r.pkks[0] || {};
+    const map = { name:r.name, phone:r.phone, email:r.email, pkk:first.pkk ? fmtPkk(first.pkk) : '', cat:first.cat };
     let n = 0;
     for (const [k, v] of Object.entries(map)) {
       const el = $('f_'+k); el.classList.remove('found','miss');
       if (v) { el.value = v; el.classList.add('found'); n++; } else el.classList.add('miss');
     }
+    scanExtra = editId ? [] : r.pkks.slice(1).map(p => ({ pkk:p.pkk, cat:p.cat || '', on:true })); showExtra();
     fill.style.width = '100%';
-    st(n === 5 ? `✅ Odczytano wszystkie dane${barcode ? ' (PKK z kodu kreskowego)' : ''}. Sprawdź i kliknij „Zapisz”.`
-               : `⚠️ Odczytano ${n} z 5 pól – uzupełnij pola zaznaczone na żółto lub zrób wyraźniejsze zdjęcie.`);
+    const more = scanExtra.length ? ` Na kartce ${scanExtra.length === 1 ? 'jest 2. numer PKK' : 'są ' + (scanExtra.length + 1) + ' numery PKK'} – zapiszą się jako osobne wpisy.` : '';
+    st((n === 5 ? `✅ Odczytano wszystkie dane${barcodes.length ? ' (PKK z kodu kreskowego)' : ''}. Sprawdź i kliknij „Zapisz”.`
+               : `⚠️ Odczytano ${n} z 5 pól – uzupełnij pola zaznaczone na żółto lub zrób wyraźniejsze zdjęcie.`) + more);
   } catch (err) {
     console.error(err); st('❌ Błąd odczytu. Sprawdź połączenie z internetem i spróbuj ponownie.');
   } finally { setTimeout(() => bar.style.display = 'none', 800); }
