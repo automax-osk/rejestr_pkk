@@ -101,7 +101,11 @@
   <div class="card">
     <h2>1. Zdjęcie profilu PKK</h2>
     <input type="file" id="file" accept="image/*" hidden>
-    <button class="btn big" id="btnPhoto">📷 Zrób zdjęcie lub wybierz z galerii</button>
+    <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn big" id="btnPhoto" style="flex:2;min-width:180px">📷 Zrób zdjęcie</button>
+      <button class="btn big sec" id="btnGallery" style="flex:1;min-width:120px">🖼️ Z galerii</button>
+    </div>
     <img id="preview" alt="podgląd">
     <div class="bar" id="bar"><div></div></div>
     <div id="status">Zrób zdjęcie całej kartki, prosto i w dobrym świetle.</div>
@@ -148,7 +152,7 @@
 
 </main>
 <footer style="text-align:center;color:var(--mut);font-size:.85rem;padding:6px 12px 24px">Program przygotował: <svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:-4px"><circle cx="12" cy="12" r="12" fill="#1877f2"/><path d="M13.4 19.5v-6h2l.3-2.4h-2.3V9.6c0-.7.2-1.2 1.2-1.2h1.2V6.3c-.2 0-1-.1-1.8-.1-1.8 0-3 1.1-3 3.1v1.8H9v2.4h2v6z" fill="#fff"/></svg> <b>Benek Benek</b></footer>
-<details class="ver"><summary>Rejestr PKK · <b>wersja 1.4</b> · co nowego?</summary><div class="chg"><h4>1.4 – 18.11.2026</h4><ul><li>Wydruk karty kursanta bez napisów przeglądarki (adres strony, tytuł, data, numer strony).</li><li>Na karcie kursanta zamiast logo – nagłówek jak na wydruku grafiku.</li></ul><h4>1.3 – 18.11.2026</h4><ul><li>Dokładniejsze odczytywanie zdjęcia profilu PKK: imię i nazwisko, telefon, e-mail, numer PKK i kategoria (wyrównanie oświetlenia, dwa przebiegi rozpoznawania, osobne odczytanie kategorii).</li><li>Dwa numery PKK na jednej kartce (np. C i CE) – zapisują się jako dwa osobne wpisy tej samej osoby.</li></ul><h4>1.2 – 17.11.2026</h4><ul><li>Numer wersji i lista zmian na dole programu.</li></ul><h4>1.1 – 16.11.2026</h4><ul><li>Ikona i nazwa „Rejestr PKK” po dodaniu do ekranu telefonu.</li></ul><h4>1.0 – 14.11.2026</h4><ul><li>Pierwsza wersja: skanowanie profilu PKK, karta kursanta, CSV i Excel, kopia na Dysku Google.</li></ul></div></details>
+<details class="ver"><summary>Rejestr PKK · <b>wersja 1.5</b> · co nowego?</summary><div class="chg"><h4>1.5 – 19.11.2026</h4><ul><li>Przycisk „📷 Zrób zdjęcie” od razu otwiera aparat; osobny przycisk „🖼️ Z galerii”.</li></ul><h4>1.4 – 18.11.2026</h4><ul><li>Wydruk karty kursanta bez napisów przeglądarki (adres strony, tytuł, data, numer strony).</li><li>Na karcie kursanta zamiast logo – nagłówek jak na wydruku grafiku.</li></ul><h4>1.3 – 18.11.2026</h4><ul><li>Dokładniejsze odczytywanie zdjęcia profilu PKK: imię i nazwisko, telefon, e-mail, numer PKK i kategoria (wyrównanie oświetlenia, dwa przebiegi rozpoznawania, osobne odczytanie kategorii).</li><li>Dwa numery PKK na jednej kartce (np. C i CE) – zapisują się jako dwa osobne wpisy tej samej osoby.</li></ul><h4>1.2 – 17.11.2026</h4><ul><li>Numer wersji i lista zmian na dole programu.</li></ul><h4>1.1 – 16.11.2026</h4><ul><li>Ikona i nazwa „Rejestr PKK” po dodaniu do ekranu telefonu.</li></ul><h4>1.0 – 14.11.2026</h4><ul><li>Pierwsza wersja: skanowanie profilu PKK, karta kursanta, CSV i Excel, kopia na Dysku Google.</li></ul></div></details>
 <div id="printArea" class="pa"></div>
 <div id="scanBox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99;flex-direction:column;align-items:center;justify-content:center;padding:16px">
   <div style="position:relative;width:100%;max-width:520px">
@@ -758,7 +762,8 @@ function showExtra() {
 }
 
 let worker = null;
-$('btnPhoto').onclick = () => $('file').click();
+$('btnPhoto').onclick = () => $('fileCam').click();   // od razu aparat (tylna kamera)
+$('btnGallery').onclick = () => $('file').click();
 $('file').onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
   e.target.value = '';
@@ -819,6 +824,7 @@ $('file').onchange = async e => {
     console.error(err); st('❌ Błąd odczytu. Sprawdź połączenie z internetem i spróbuj ponownie.');
   } finally { setTimeout(() => bar.style.display = 'none', 800); }
 };
+$('fileCam').onchange = $('file').onchange;
 
 // ---------- Skaner kodu kreskowego (na żywo z aparatu) ----------
 let scanStream = null, scanStop = false, zxReader = null;
